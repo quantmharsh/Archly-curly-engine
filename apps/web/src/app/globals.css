@@ -24,3 +24,30 @@ button{color:inherit;cursor:pointer}
 /* Connection templates in the build palette */
 .left-sidebar{overflow-y:auto}.sidebar-spacer{min-height:8px}.connection-palette-heading{margin-top:13px;padding-bottom:5px}.component-list.connection-list{gap:3px;margin-top:0}.connection-card{min-height:43px;border:1px solid #edf0f4;background:#fff}.connection-card:hover{background:#fafbfc;border-color:#dfe4ed}.connection-card.is-active{background:#f1f4fb;border-color:#9eadd0;box-shadow:0 0 0 2px #728bc214}.connection-icon{width:29px;height:29px;display:grid;place-items:center;flex:none;border-radius:8px;background:#f0f2f7;color:#7384a9;font-size:17px;font-weight:700}.connection-event{background:#fff2df;color:#bc8748}.connection-data{background:#e9f3ef;color:#568877}.connection-request{background:#edf3fb;color:#6689b0}
 @media(max-width:850px){.connection-palette-heading{display:none}.connection-list{margin-top:4px}.connection-card{justify-content:center;min-height:41px;padding:4px 0}.connection-copy,.connection-card .add-hint{display:none}.connection-icon{width:32px;height:32px}}
+
+/* Expand the drawing surface by letting either side panel collapse. */
+.workspace.has-left-panel.right-panel-closed{grid-template-columns:236px minmax(0,1fr)}
+.workspace.left-panel-closed.has-right-panel{grid-template-columns:minmax(0,1fr) 270px}
+.workspace.left-panel-closed.right-panel-closed{grid-template-columns:minmax(0,1fr)}
+.workspace.has-left-panel.has-right-panel{grid-template-columns:236px minmax(0,1fr) 270px}
+.sidebar-panel-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.panel-close-button{height:25px;width:25px;display:grid;place-items:center;border:1px solid #e9ecf1;border-radius:6px;background:#fff;color:#8390a3;font-size:17px;line-height:1}
+.panel-close-button:hover{background:#f6f7fa;color:#53627a}
+.panel-toggle.is-active{background:#f0f3fa;color:#5c73b2;border-color:#dce3f2}
+.panel-toggle{flex:none}
+.node-label-input{width:100%;max-width:142px;height:20px;border:1px solid #9baad0;border-radius:4px;padding:0 4px;background:#fff;color:#38445a;font-size:11px;font-weight:680;outline:none}
+.node-label-input:focus{box-shadow:0 0 0 2px #8298c322}
+@media(max-width:1100px){.workspace.has-left-panel.right-panel-closed{grid-template-columns:210px minmax(0,1fr)}.workspace.has-left-panel.has-right-panel{grid-template-columns:210px minmax(0,1fr) 245px}.workspace.left-panel-closed.has-right-panel{grid-template-columns:minmax(0,1fr) 245px}}
+@media(max-width:850px){.workspace.has-left-panel.right-panel-closed{grid-template-columns:68px minmax(0,1fr)}.workspace.has-left-panel.has-right-panel{grid-template-columns:68px minmax(0,1fr) 235px}.workspace.left-panel-closed.has-right-panel{grid-template-columns:minmax(0,1fr) 235px}.left-sidebar .sidebar-panel-heading .sidebar-label{display:block}.left-sidebar .panel-close-button{margin-left:auto}}
+@media(max-width:650px){.workspace,.workspace.has-left-panel.right-panel-closed,.workspace.left-panel-closed.has-right-panel,.workspace.left-panel-closed.right-panel-closed,.workspace.has-left-panel.has-right-panel{position:relative;display:block}.workspace .left-sidebar,.workspace .right-sidebar{position:absolute;top:0;bottom:0;width:min(280px,86vw);display:flex!important;z-index:6;overflow-y:auto;box-shadow:0 12px 28px #25334d26}.workspace .left-sidebar{left:0;padding:17px 13px 12px}.workspace .right-sidebar{right:0}.workspace .left-sidebar .sidebar-label,.workspace .left-sidebar .sidebar-tab>span:not(.tab-icon),.workspace .left-sidebar .palette-heading,.workspace .left-sidebar .component-copy,.workspace .left-sidebar .add-hint,.workspace .left-sidebar .sidebar-rule,.workspace .left-sidebar .local-note,.workspace .left-sidebar .sidebar-footer{display:initial}.workspace .left-sidebar .sidebar-tab{justify-content:flex-start;padding:0 10px}.workspace .left-sidebar .palette-heading{display:flex}.workspace .left-sidebar .component-card{justify-content:flex-start;padding:7px;min-height:55px}.workspace .left-sidebar .connection-card{min-height:43px}.workspace .left-sidebar .component-icon{width:32px;height:32px}.workspace .left-sidebar .component-copy{display:flex}.workspace .left-sidebar .local-note{display:flex}.workspace .left-sidebar .sidebar-footer{display:flex}.workspace .left-sidebar .sidebar-panel-heading{display:flex}.workspace .toolbar-actions .panel-toggle{display:flex}.toolbar-actions{gap:4px}.toolbar-button.icon-only.panel-toggle{width:28px;height:28px}.workspace .canvas-column{height:100%}}
+
+.edge-add-bend,.edge-waypoint{position:absolute;z-index:5;display:grid;place-items:center;padding:0;border:1px solid #dfe4ed;background:#fff;color:#5f75ad;box-shadow:0 2px 8px #25334d26;pointer-events:all}
+.edge-add-bend{width:21px;height:21px;border-radius:50%;font-size:15px;line-height:1}
+.edge-add-bend:hover{background:#f1f4fb;border-color:#aab7d5}
+.edge-waypoint{width:15px;height:15px;border:2px solid #687fb9;border-radius:50%;cursor:grab;touch-action:none}
+.edge-waypoint:active{cursor:grabbing;background:#e8edfa}
+.canvas-workspace:fullscreen{position:fixed;inset:0;width:100vw;height:100vh;min-height:100vh;z-index:9999;flex:none;border:0;border-radius:0;background:var(--canvas-color)}
+.canvas-workspace:fullscreen .react-flow{width:100%;height:100%}
+.fullscreen-exit-hint{position:absolute;z-index:7;top:16px;right:17px;padding:7px 10px;border:1px solid #e3e7ee;border-radius:7px;background:#ffffffdd;color:#718096;font-size:10px;backdrop-filter:blur(8px);pointer-events:none}
+.fullscreen-exit-hint kbd{padding:2px 5px;border:1px solid #dfe3ea;border-radius:4px;background:#fff;color:#55647b;font-size:9px}
+@media(max-width:650px){.toolbar-actions .full-screen-toggle{display:flex}}

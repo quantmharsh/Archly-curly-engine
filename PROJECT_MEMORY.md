@@ -1,7 +1,7 @@
 # AI Engineering Canvas - Project Memory
 
-Last reviewed: 2026-10-02
-Status: Design review; development has not started.
+Last reviewed: 2026-10-03
+Status: Phase 1A guest-canvas implementation started; account sync remains Phase 1B.
 
 ## How to use this file
 
@@ -24,7 +24,22 @@ Core product loop from the source specification:
 
 Primary problem: static architecture diagrams are slow to create, disconnected from source code, and difficult to explore.
 
-Potential users named in the spec: software developers, tech leads, architects, students, and interview candidates. The first target audience and initial high-value task still need to be selected.
+Potential users named in the spec: software developers, tech leads, architects, students, and interview candidates. The Phase 1A working audience/task is a software developer sketching a service flow; validate it with later product feedback.
+
+## UX and persistence requirements
+
+- The canvas should feel approachable, responsive, interactive, and visually polished. Prioritize a clear workspace and low-friction drawing/editing over a crowded toolbar.
+- Keep the drawing surface primary: side panels can be closed independently. Rename a component inline by double-clicking it; selecting a component does not automatically open its inspector. Advanced component fields remain available through an explicit details control.
+- Let users reshape connections by dragging persisted bend points. Full-screen mode should show only the fitted canvas and exit with Escape.
+- Users should be able to customize canvas appearance, including canvas/background colors and diagram/node colors. Preserve text contrast and provide a quick way to reset to sensible defaults.
+- The Phase 1A palette exposes both engineering components and labeled connection templates. A user can choose HTTPS request, data flow, or event publish, then click a source and destination node to create a directed arrow; dragging between node handles remains an alternate way to connect.
+- Offer both guest/local use and signed-in account use:
+  - Guest work persists in the current browser profile so it is available on later visits from that same browser/device.
+  - Guest/local work is not automatically available in a different browser or device. Explain this clearly in the UI.
+  - Signed-in work persists to the user's account and is available after sign-in from other supported browsers/devices.
+- Provide a deliberate guest-to-account upgrade flow. When a guest signs in, offer to move or merge their local projects into the account; explain duplicates/conflicts and never silently discard either copy.
+- For feasibility, treat browser storage (preferably IndexedDB for structured graph documents/history) as the guest persistence candidate and PostgreSQL-backed account storage as the cross-device source of truth. This is a proposed design to validate, not an implementation decision.
+- Define behavior for offline edits, browser storage eviction/clearing, multiple local diagrams with duplicate names, sync failure, and conflicting account edits before promising these cases in the UI.
 
 ## Product and engineering principles
 
@@ -70,23 +85,65 @@ Current official references checked on 2026-10-02:
 
 Exact package versions and deployment constraints must be checked again at implementation kickoff. This is a design assessment, not a claim that the packages have already been installed or tested together in this project.
 
+### Recommended starting stack
+
+Keep Phase 1 as one TypeScript web application plus PostgreSQL; do not start with the full distributed stack.
+
+- App and API: Next.js App Router with Route Handlers for the first project/diagram/account endpoints. Add a separate Express API only when persistent WebSockets, long-running work, or deployment boundaries justify it. Next.js Route Handlers are a supported backend-for-frontend pattern, with deployment caveats for WebSockets and long-running requests.
+- UI: React, TypeScript, `@xyflow/react`, Tailwind CSS, and Zustand when shared canvas state warrants it.
+- Shared graph validation: Zod; keep one canonical schema and validate data at storage/API boundaries.
+- Guest persistence: browser IndexedDB (a small wrapper such as Dexie is an implementation option); it is local to that browser profile/device, not cross-device sync.
+- Account persistence: PostgreSQL as the authoritative cloud store for projects, diagrams, versions, and users; Drizzle ORM/migrations is the current recommendation for the TypeScript/Postgres app.
+- Authentication: Better Auth is a candidate because its current docs support PostgreSQL and Drizzle; confirm the auth and deployment requirements before implementation. Never implement password/session handling by hand.
+- Local development: Docker Compose for PostgreSQL only, if a local container is the chosen developer setup.
+- Quality: TypeScript strict mode, ESLint, Vitest for unit/integration tests, and Playwright for browser-level flows. Use Supertest only if a separate Express server is introduced.
+- Package manager/monorepo: choose at kickoff. Start as a single app unless a shared package is genuinely needed.
+
+Implementation has started as one Next.js app in `apps/web`, using Next.js 16.3.8, React 19, React Flow, Tailwind CSS, Zod, and Dexie/IndexedDB. npm is the current package manager. Account sync remains unbuilt.
+
+### Scaffold verification (2026-10-02, updated 2026-10-03)
+
+- The local Next.js development server starts, and the home route returned HTTP 200. `tsc --noEmit` and ESLint pass after fixing edge serialization types and React lint findings. The TypeScript compiler updates `tsconfig.json` for the Next.js App Router on first run; keep those generated required settings.
+- Vitest (with `fake-indexeddb`) now provides automated coverage for graph validation and Dexie persistence, run through the `npm test` script added in `apps/web`. There is still no separate API process and no Docker Compose/Dockerfile. A manual browser review of the guest canvas was completed by the user on 2026-10-03 and confirmed the seeded commerce diagram, node and edge rendering, and canvas interactions work correctly. A headless Chrome/CDP check is not a substitute for that review: it can load the server-rendered HTML without hydrating the client, yielding zero React Flow nodes and unresponsive clicks, so canvas rendering must be judged by a real browser session.
+- `apps/web/next.config.ts` scopes Turbopack to the web app and disables Next.js nested agent-rule file generation. Guest canvas stays Phase 1A and account sync remains Phase 1B.
+
+### Caching decision
+
+- Do not add Redis in Phase 1. Guest persistence is browser storage; account data and version history belong in PostgreSQL. These are persistence needs, not cache needs.
+- Use appropriate HTTP/Next.js caching only for cacheable, non-user-specific reads. Keep personalized diagrams and mutations correctly scoped and uncached unless a safe invalidation design exists.
+- Revisit Redis when there is evidence for shared server-side cache pressure, distributed rate limiting, multi-instance coordination, or short-lived shared job/progress state. Redis remains a cache/ephemeral-state layer, never the source of truth for diagrams.
+- RabbitMQ is also not required in Phase 1; add a durable queue when code analysis or other work runs long enough to need background processing, retries, and persisted job status.
+
+Relevant official docs checked 2026-10-02:
+
+- Next.js backend-for-frontend and Route Handlers: https://nextjs.org/docs/app/guides/backend-for-frontend
+- Next.js self-hosted cache behavior: https://nextjs.org/docs/app/guides/self-hosting
+- Better Auth PostgreSQL setup: https://better-auth.com/docs/adapters/postgresql
+- Drizzle overview: https://orm.drizzle.team/docs/overview
+- Redis caching patterns: https://redis.io/docs/latest/develop/use/patterns/
+
 ## Durable decisions and open decisions
 
 Accepted direction:
 
 - Product concept and long-term flow in `AI_Engineering_Canvas_Project_Spec.pdf`.
+- Phase 1A guest canvas started; Phase 1B adds account sync.
 - Phase-based delivery and feasibility review before broad implementation.
 - Structured graph as the shared domain model.
 - User requires documentation to be kept current as code, design, or features change.
+- User wants a sleek, friendly, interactive canvas with customizable colors and both local guest persistence and signed-in cross-device persistence.
 
 Still to decide before the relevant phase:
 
-- Initial target user and first success scenario.
-- Exact MVP scope and milestone acceptance criteria.
+- Validate the working first target user/task (developer sketching a service flow) through later product feedback.
+- Final public-release scope and acceptance criteria; Phase 1A is guest canvas, followed by Phase 1B account sync.
+- Guest-to-account import/merge behavior and sync/conflict rules.
+- Appearance customization scope (canvas background, theme, node/edge colors, reset/defaults, accessibility contrast).
 - Graph schema details, including one canonical location for `sourceRefs`, edge animation fields, groups, and schema migrations.
 - Version/checkpoint policy and the relationship between undo/redo, autosave, and persisted versions.
-- Whether the first release uses Next.js route handlers or a separate Express API process.
-- ORM/query layer, authentication approach, and deployment target.
+- Revisit a separate Express API only if a concrete requirement justifies it; Phase 1A uses one Next.js application.
+- Confirm Drizzle or choose another ORM/query layer; confirm Better Auth or choose another authentication provider.
+- Deployment target before public deployment.
 - File/import limits and supported TS/JS analysis behavior.
 
 ## Source of truth
@@ -96,3 +153,7 @@ Still to decide before the relevant phase:
 - Durable decisions and context: `PROJECT_MEMORY.md` (this file).
 - Phase scope, status, acceptance criteria, remaining work, and change log: `PHASE_PLAN.md`.
 - Implemented behavior: source code and tests once development begins. Documentation does not override implementation evidence.
+
+## Canvas editing update (2026-10-03)
+
+Phase 1A canvas editing now supports marquee selection of fully enclosed components, group movement, copy/paste of selected components and arrows between them (preserving and offsetting bend points), and keyboard undo/redo. Copy and paste shortcuts are ignored while an editable field has focus. The separate testing agent owns verification; see `apps/web/docs/canvas-editing-testing-checklist.md`. No test or build commands were run by the coding agent for this update. Canvas navigation: left-drag on empty canvas draws a marquee selection, and the viewport pans with two-finger or trackpad scroll, Space + drag, or a middle/right mouse drag. Ctrl/⌘ + scroll zooms. An earlier attempt removed `selectionOnDrag` and therefore disabled marquee selection entirely; that was reverted. Note that React Flow only honours `selectionOnDrag` while `panOnDrag` is not the default `true`, which is why `panOnDrag={[1, 2]}` must stay paired with it.

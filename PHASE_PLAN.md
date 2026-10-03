@@ -1,7 +1,7 @@
 # AI Engineering Canvas - Phase Plan
 
-Last updated: 2026-10-02
-Overall status: Design accepted in principle; stack looks suitable with staged adoption; implementation not started.
+Last updated: 2026-10-03
+Overall status: Phase 1A guest-canvas implementation started; account sync and later phases not started.
 
 ## Tracking rules
 
@@ -10,21 +10,25 @@ Overall status: Design accepted in principle; stack looks suitable with staged a
 - A checklist item is complete only after it is implemented and checked. Link to relevant files or evidence when code exists.
 - Before advancing phases, review feasibility, unresolved dependencies, and acceptance criteria with the user.
 
-## Before Phase 1: feasibility and product decisions
+## Before Phase 1B: account and sync decisions
 
-Status: In progress (design review; no implementation)
+Status: In progress (Phase 1A is underway; remaining decisions apply to account sync and future milestones)
 
 - [x] Review the source specification and identify the long-term product flow.
 - [x] Agree to a phase-based build with feasibility checks before development.
 - [x] Make documentation continuity a project requirement.
-- [ ] Choose the first target user and the first job the product must make easier.
-- [ ] Confirm MVP scope and acceptance criteria for the first usable release.
-- [ ] Decide whether Next.js route handlers or a separate Express API is justified in the first release.
-- [ ] Select the persistence/query layer and authentication approach before their implementation.
-- [ ] Resolve canonical graph schema fields and graph consistency rules.
+- [x] Choose a working first user and task: a software developer sketching a service flow.
+- [x] Split manual canvas delivery into guest canvas (Phase 1A) followed by account persistence/sync (Phase 1B).
+- [x] Confirm Phase 1A starts with guest/local persistence; Phase 1B account sync remains required before considering the manual-canvas foundation complete.
+- [ ] Define how guest diagrams are imported/merged after sign-in and how sync conflicts are handled.
+- [x] Start with initial canvas color controls and readable engineering-node colors; refine accessibility/readability rules as UI work proceeds.
+- [x] Use one Next.js application for the guest slice; revisit a separate API only when a concrete requirement appears.
+- [ ] Confirm Drizzle (or another query layer) and Better Auth (or another auth provider) before Phase 1B.
+- [x] Use npm with a single app under `apps/web` for Phase 1A; decide deployment target before publishing or starting account sync.
+- [x] Establish a first canonical graph schema and graph consistency validation for Phase 1A; review migration/version rules before Phase 1B.
 - [ ] Decide how user edits, autosave, undo/redo, and persisted versions interact.
 
-Exit gate: the user confirms the first milestone scope, its acceptance criteria, and the remaining architecture choices needed to build it.
+Phase 1A can proceed with the recorded working assumptions. Close the remaining items before starting Phase 1B account persistence.
 
 ## Proposed implementation phases
 
@@ -32,28 +36,54 @@ These phases preserve the specification's capabilities while keeping the first b
 
 ### Phase 1 - Manual canvas foundation
 
-Status: Not started
+Status: In progress (Phase 1A)
 
-Goal: A user can create and edit a small technical diagram and reliably save and reopen it.
+Goal: A user can create and edit a small technical diagram, keep it in the current browser, then optionally sign in and sync it across devices.
 
-Candidate scope:
+### Phase 1A - Guest canvas
 
-- Create/open a project and diagram (auth can be deferred for a local/single-user MVP if the product decision allows it).
-- React Flow canvas with a small, intentional set of engineering node types.
-- Add, move, connect, select, edit, and delete nodes/edges; basic groups/labels only if they are needed for the first scenario.
-- Shared, versioned graph schema with runtime validation and graph consistency checks.
-- Persist and reload graph plus viewport; establish a clear undo/redo and save/checkpoint policy.
-- Basic project/diagram/version persistence and a useful example diagram.
-- Setup instructions and focused validation for core graph/API behavior.
+Status: In progress
 
-Acceptance criteria to finalize:
+Goal: A guest can build a basic service flow and reopen it from the same browser profile.
 
-- A user can create a diagram, make the supported edits, save it, reload it, and recover the same graph.
+Scope:
+
+- Build a responsive technical canvas with a starter example and engineering component palette.
+- Add/move/connect/select/edit/delete components; support full-containment marquee selection, group dragging, copy/paste of selected components and internal arrows, and keyboard undo/redo for supported graph actions.
+- Customize canvas background and component colors; save appearance with the diagram.
+- Save/reopen multiple diagrams in IndexedDB, autosave, and export a JSON backup.
+- Validate saved graph structure and edge endpoints through the shared Zod schema.
+- Document setup and clearly explain browser/device-scoped guest data.
+
+Not included: login, cloud database, remote sync, multi-device guest sync, AI, repository import, Redis, RabbitMQ, and Socket.IO.
+
+Acceptance criteria:
+
+- A guest can create a diagram, make the supported edits, save it, reload it, and recover its graph, viewport, and appearance.
+- A guest can return in the same browser profile and see local diagrams; the UI explains that data is browser/device scoped.
+- Appearance choices persist per diagram and keep labels readable.
+- A guest can choose a labeled connection type from the palette, click a source then destination component to add a directed arrow, and continue to connect by dragging between handles.
+- The canvas is the primary workspace; left and right panels can be closed independently and reopened from canvas controls.
+- A guest can rename a component by double-clicking it; selecting a component does not automatically open its inspector.
+- A guest can select an arrow, add one or more bend points, and drag those points to route the arrow; bend points persist with the graph.
+- A guest can expand the canvas to browser full screen, see the whole diagram, and exit with Escape.
 - Invalid graph mutations are rejected with understandable errors.
-- Persisted history follows the agreed checkpoint policy and can be inspected/restored as designed.
+- A JSON export provides a backup before account sync exists.
 - A new contributor can run the app by following the documented setup steps.
 
-Defer unless justified: Redis, RabbitMQ, Socket.IO, AI, repository import, voice, collaboration, and presentation mode.
+### Phase 1B - Account persistence and sync
+
+Status: Not started
+
+- Add account authentication and PostgreSQL-backed projects, diagrams, and versions.
+- Sign in from guest mode and offer a safe import/merge flow without silently discarding local or account data.
+- Sync account diagrams across supported browsers/devices.
+- Define local cache/offline behavior, sync failure handling, conflict resolution, and guest-data retention/backup policy.
+- Add durable version history with an agreed checkpoint policy.
+
+Acceptance criteria: a signed-in user sees the same account diagrams across browsers/devices; guest diagrams can be transferred intentionally; conflicts or failures preserve both copies until resolved.
+
+Still defer: Redis, RabbitMQ, Socket.IO, AI, repository import, voice, collaboration, and presentation mode.
 
 ### Phase 2 - Prompt to diagram
 
@@ -129,17 +159,33 @@ Status: Not started
 
 See the rationale and current official documentation references in `PROJECT_MEMORY.md`.
 
-- Provisionally suitable: Next.js/React/TypeScript, `@xyflow/react`, Tailwind CSS, Zustand as state complexity grows, PostgreSQL, Zod.
-- Conditional: Express as a separately run API, Socket.IO, Docker Compose; include when the selected deployment/runtime needs them.
-- Later: OpenAI Agents SDK, TypeScript compiler API/ts-morph or Tree-sitter, Vapi, Redis, RabbitMQ, OpenTelemetry/Langfuse.
+- In Phase 1A implementation: Next.js 16.3.8 App Router, React/TypeScript, `@xyflow/react`, Tailwind CSS, Zod, and Dexie/IndexedDB for guest mode. Zustand remains optional until shared state complexity warrants it.
+- Recommended for Phase 1B, pending confirmation: PostgreSQL + Drizzle for account data and Better Auth as the auth candidate.
+- Recommended development tools: TypeScript strict mode, ESLint, Vitest, Playwright, and Docker Compose for PostgreSQL if local containers are chosen.
+- Conditional: Express as a separately run API, Socket.IO, Redis, and RabbitMQ; include only when a demonstrated runtime/job/caching need requires them. Redis is explicitly deferred for Phase 1.
+- Later: OpenAI Agents SDK, TypeScript compiler API/ts-morph or Tree-sitter, Vapi, OpenTelemetry/Langfuse.
 - Pin and re-check exact versions at implementation kickoff; do not treat this review as a compatibility test.
 
 ## Current state and next step
 
-No source code has been created or changed in this project. The workspace contains the original specification PDF, project instructions, and these tracking documents.
+Initial Phase 1A app scaffold and guest-canvas UI code are in `apps/web`; dependencies are installed and `package-lock.json` is generated. The dev server starts and the home route returned HTTP 200. TypeScript type-checking passes. Vitest coverage exercises graph document validation and Dexie persistence; `npm test` runs the suite. The user completed a manual browser review of the guest canvas on 2026-10-03 and confirmed the seeded commerce diagram and canvas interactions work correctly. The workspace now prioritizes the canvas, panels close independently, and component labels are edited inline by double-click; those UI changes still require verification. No separate API service or Docker Compose configuration exists in this phase.
 
-Next step: complete the pre-Phase-1 decisions above, then review and confirm a small Phase 1 scope and its acceptance criteria before creating the application.
+Next step: the separate testing agent should review `apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md` against multi-selection, group dragging, copy/paste, undo/redo, arrow bends, full-screen mode, panels, inline renaming, and persistence. The user asked the coding agent not to run checks. After results, choose the next Phase 1A item with the user. Candidate gaps are JSON backup import/recovery, edge label and style editing, overlap-free component placement, and verifying the production `next build`. Keep Phase 1B deferred until its import/conflict rules and provider choices are agreed.
 
 ## Change log
 
 - 2026-10-02: Created `AGENTS.md`, `PROJECT_MEMORY.md`, and `PHASE_PLAN.md` after product-spec review. Recorded the accepted product direction, staged stack assessment, unresolved decisions, proposed phases, and requirement to keep these docs synchronized with code/design/feature changes.
+- 2026-10-02: Added the user's UX requirements for a polished customizable canvas, browser-local guest persistence, account-backed cross-device persistence, and a safe guest-to-account migration path. Updated Phase 1 candidates and feasibility decisions; implementation remains unstarted.
+- 2026-10-02: Added a concrete but unconfirmed Phase 1 stack recommendation: start with a single Next.js app, IndexedDB for guest diagrams, PostgreSQL/Drizzle and an auth provider for account diagrams. Explicitly defer Redis until measured shared-cache, rate-limit, or coordination needs; defer RabbitMQ until durable background jobs are needed.
+- 2026-10-02: User asked to begin. Started Phase 1A with the working assumption of a developer sketching a service flow. Added the `apps/web` Next.js guest-canvas scaffold, initial graph validation, IndexedDB persistence layer, and UI for canvas editing/customization. Installed dependencies and generated `package-lock.json`. Account sync remains Phase 1B. The app has not been run, type-checked, visually reviewed, or tested.
+- 2026-10-02: Audited the Phase 1A scaffold. Fixed persisted edge-value normalization for React Flow types, corrected React lint issues in autosave/history/component placement, removed the remaining PostCSS lint warning, and scoped Next.js Turbopack to `apps/web`. TypeScript and ESLint now pass. The dev server started and `/` returned HTTP 200. No tests, separate API, or Compose files are present; visual interaction review is still pending because the browser runtime was unavailable. Phase 1A remains in progress.
+- 2026-10-02: Improved connection discoverability in the Phase 1A canvas. Added HTTPS request, data flow, and event publish templates to the build palette; selecting one guides the user to click source and destination nodes to create a labeled directed arrow. Existing drag-handle connections remain available. Updated the canvas tip and phase acceptance criteria.
+- 2026-10-02: Prepared the repository for coding-agent handoff. Audited the actual app, Git state/history, and available tooling; type-check and lint pass, the existing dev server returned HTTP 200, and no test suite, API routes, or Docker/Compose configuration were found. Added current-status, handoff, and decision documents. The next task is a small Phase 1A test suite for graph validation and local persistence.
+- 2026-10-03: Added Vitest and fake-indexeddb with tests for valid diagram parsing, duplicate node/edge IDs, missing edge endpoints, validated Dexie save/read round-trips, and rejection of invalid documents before persistence. Added the `npm test` script. Phase 1A remains in progress; next step is interactive visual review.
+- 2026-10-03: User completed a manual browser review of the Phase 1A guest canvas and confirmed the seeded commerce diagram and canvas interactions work correctly; the outstanding interactive visual review is closed with no defects reported. Also recorded that a headless Chrome/CDP check is not a substitute for this review: it can load the server-rendered HTML without hydrating the client, which yields zero React Flow nodes and unresponsive clicks, so it must not be used to judge canvas rendering.
+- 2026-10-03: Expanded the Phase 1A canvas workspace with independently closable build and settings/details panels. The right panel is closed by default and node selection no longer opens the inspector; users can open component details explicitly. Added double-click inline component-name editing and updated on-canvas guidance. TypeScript check and all 6 existing tests pass. Visual browser review could not run because no in-app browser session was available; it remains the next verification step.
+- 2026-10-03: User assigned testing to another agent and asked the coding agent not to run tests. Added `docs/canvas-ui-testing-checklist.md` for panel layout, inline renaming, autosave/history, and existing canvas regression coverage; handoff now points the testing agent to that checklist.
+- 2026-10-03: Added selectable edge bend controls backed by optional graph edge waypoint data, plus browser full-screen canvas mode that fits nodes and route points, restores the prior viewport on exit, and exits through Escape. Kept graph schema version 1 with optional, backward-compatible waypoint data. Updated the testing checklist for route editing, persistence, export, and full-screen exit. No tests were run per user instruction.
+
+- 2026-10-03: Expanded Phase 1A canvas editing with full-containment marquee selection, multi-component group dragging, copy/paste of selected components and internal arrows (including bent routes), and Ctrl/Cmd+Z undo with redo shortcuts. Added `apps/web/docs/canvas-editing-testing-checklist.md` for the separate testing agent. No checks were run per the user's instruction. Next: separate testing agent reviews the checklist and reports results; then agree on the next Phase 1A task.
+- 2026-10-03: Corrected the canvas navigation fix after the user reported that multi-selection, copy/paste, group movement, and keyboard undo had stopped working. Removing `selectionOnDrag` had disabled marquee selection, because React Flow computes `_selectionOnDrag = selectionOnDrag && panOnDrag !== true` and therefore ignores `selectionOnDrag` unless `panOnDrag` is not the default `true`. Restored `selectionOnDrag` and `panOnDrag={[1, 2]}` so left-drag selects exactly as before, and kept `panOnScroll` as the actual fix for the reported two-finger/trackpad scroll problem. Panning is available through two-finger scroll, Space + drag (default `panActivationKeyCode`), and middle/right mouse drag. Updated the canvas hint, quick tip, and testing checklist so they describe the real gesture set. `selectionOnDrag` combined with `panOnDrag={[1, 2]}` had restricted drag panning to the middle and right mouse buttons, and the absent `panOnScroll` meant trackpad and two-finger scroll zoomed instead of panning. Left-drag and touch panning are restored, scroll panning is enabled, and marquee selection moved to Shift + drag through `selectionKeyCode`. Updated the on-canvas hint and quick tip plus the testing checklist. Type-checking initially failed on a pre-existing error from the uncommitted waypoint edge work: `DraggableEdge` destructured `labelX`/`labelY`, which the installed React Flow v12.8.4 does not declare on `EdgeProps` and does not pass to custom edge components. Removed the dead destructuring and used the path helper's label coordinates instead, matching how React Flow's own built-in edges behave, so runtime rendering is unchanged. TypeScript and ESLint now pass; the test suite was not run because the user previously delegated testing to a separate agent.

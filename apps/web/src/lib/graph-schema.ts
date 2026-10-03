@@ -24,6 +24,7 @@ export const graphEdgeSchema = z.object({
   type: z.string().optional(),
   animated: z.boolean().optional(),
   markerEnd: z.object({ type: z.string(), color: z.string().optional() }).optional(),
+  data: z.object({ waypoints: z.array(pointSchema).optional() }).passthrough().optional(),
 }).passthrough();
 
 export const graphSchema = z.object({
