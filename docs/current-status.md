@@ -114,3 +114,7 @@ Fixed the reported connection label position issue on manually routed arrows and
 ## 2026-10-04 relationship presentation fix
 
 Relationship categories now apply distinct line color/pattern presets, and changing the category updates the arrow presentation immediately. The separate testing agent should verify category switching and manual style overrides using the canvas editing checklist. No checks were run by the coding agent.
+
+## 2026-10-04 canvas direct-use update
+
+A canvas direct-use pass adds a Ctrl/⌘ K command palette, right-click context menus for components/arrows/empty canvas, double-click quick-add at the pointer, 22px grid snapping, add-at-cursor placement, category-aware handle connections, reconnectable/click-to-connect arrows, Ctrl/Cmd multi-select, Arrow-key nudge, Ctrl/Cmd+D duplicate, Shift+1 fit and Ctrl/⌘ +/- zoom, and undo coverage for component name/description/color. Connection handles are enlarged. `apps/web/src/components/studio.tsx` and `apps/web/src/app/globals.css` implement this; `apps/web/src/lib/graph-schema.ts` now accepts numeric `style.strokeDasharray`. Type-check and lint pass for the changed files and the existing tests pass; browser verification remains with the separate testing agent (scenarios added to `apps/web/docs/canvas-editing-testing-checklist.md`).

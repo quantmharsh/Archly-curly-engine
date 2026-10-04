@@ -27,7 +27,7 @@ export const graphEdgeSchema = z.object({
   style: z.object({
     stroke: z.string().optional(),
     strokeWidth: z.union([z.number(), z.string()]).optional(),
-    strokeDasharray: z.string().optional(),
+    strokeDasharray: z.union([z.string(), z.number()]).optional(),
   }).passthrough().optional(),
   data: z.object({
     waypoints: z.array(pointSchema).optional(),

@@ -175,3 +175,7 @@ For custom-routed edges, place the label using the midpoint of the current endpo
 ## 2026-10-04: Distinguish relationship categories on the canvas
 
 Render HTTPS request as blue solid, data flow as green dashed, and event publish as orange dotted. A relationship change applies its category preset immediately; Custom restores neutral solid styling. Explicit color and line-style controls remain available for manual overrides. Distinct patterns preserve a visual distinction beyond color alone.
+
+## 2026-10-04: Favor direct, keyboard-first canvas interactions
+
+Reduce steps and mouse travel for common canvas work. Provide a Ctrl/⌘ K command palette, right-click context menus (component/arrow/canvas), double-click quick-add at the pointer, 22px grid snapping, add-at-cursor placement, category-aware handle connections, reconnectable and click-to-connect arrows, Ctrl/Cmd multi-select, Arrow-key nudge, Ctrl/Cmd+D duplicate, and Shift+1 fit / Ctrl/⌘ +/- zoom. Keep the existing marquee-selection and panning gestures working; selection highlighting is not document state. These interactions are client-only and do not change the persisted graph schema beyond the already-added bend points and connection category.

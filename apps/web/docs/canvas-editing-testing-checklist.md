@@ -63,3 +63,21 @@ Testing is assigned to the separate testing agent. The coding agent did not run 
 - [ ] Change edge appearance, export the diagram, re-import it as a new canvas, and confirm label, relationship category, line color, dashed/solid style, and animation are restored.
 
 Report viewport/browser, steps, expected and actual outcomes, and console errors. Attach screenshots for visual issues.
+
+## Direct-use interactions (canvas speed pass)
+
+- [ ] Press Ctrl/⌘ K (or click the ⌘ K button in the right panel footer). Confirm the command palette opens, filters as you type, and runs add-component, canvas, edit, and view commands; confirm Escape and Enter behave as expected.
+- [ ] Right-click a component. Confirm a context menu appears with Open details, Duplicate, Connect from here (request/data/event), and Delete; confirm each action works and the menu closes on outside click and Escape.
+- [ ] Right-click an arrow and confirm the Connection menu (Open details, Delete) works.
+- [ ] Right-click empty canvas and confirm the Add component / Paste / Fit view menu works; confirm a chosen component lands at that point and on the grid.
+- [ ] Double-click empty canvas. Confirm a quick-add menu appears at the pointer and the added component snaps to the 22px grid.
+- [ ] Add a component from the palette and confirm it appears near the viewport center (not at a fixed offset) and snaps to the grid.
+- [ ] Drag components with snapping on. Confirm positions land on the 22px grid and a full drag is a single undo step.
+- [ ] Select a connection template, then drag from a handle to another component. Confirm the new arrow uses that category (color/style/animation) instead of always defaulting to HTTPS request.
+- [ ] Drag an existing arrow's endpoint onto a different component. Confirm the arrow re-attaches and the change is undoable. Also click one handle then another and confirm the connection is created.
+- [ ] Ctrl/Cmd-click components to extend the selection; confirm multi-select works alongside marquee selection.
+- [ ] Select component(s) and press the Arrow keys to nudge; confirm movement snaps to the grid, Shift+Arrow moves further, and each nudge is undoable.
+- [ ] Select component(s) and press Ctrl/⌘ D; confirm a duplicate appears offset and selected (including internal arrows and bends).
+- [ ] Press Shift+1 to fit the view and Ctrl/⌘ +/- to zoom; confirm the viewport responds and the diagram stays usable.
+- [ ] Edit a component's name, description, and color, then undo. Confirm each edit is undoable.
+- [ ] Confirm the enlarged connection handles are easy to grab and that marquee selection, panning (two-finger/scroll, Space+drag, middle/right drag), copy/paste, undo/redo, bend editing, and fullscreen still behave as before.

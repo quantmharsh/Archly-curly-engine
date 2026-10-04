@@ -62,6 +62,14 @@ const connectionStyle: Record<ConnectionKind, { stroke: string; strokeWidth: num
   event: { stroke: "#d38a2c", strokeWidth: 2.4, strokeDasharray: "2 5" },
 };
 const customConnectionStyle = { stroke: "#8290a6", strokeWidth: 2, strokeDasharray: undefined };
+const GRID_STEP = 22;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2.5;
+// React Flow's trackpad/touchpad pinch goes through a ctrl+wheel handler whose
+// internal factor is 10x smaller on Windows than on macOS, making pinch feel
+// sluggish. We intercept that gesture ourselves and amplify it; touchscreen
+// pinch (real touch events) keeps React Flow's natural 1:1 ratio.
+const PINCH_WHEEL_INTENSITY = 0.02;
 
 const seedNodes: FlowNode[] = [
   { id: "web-client", type: "engineering", position: { x: 70, y: 185 }, data: { label: "Web client", description: "Customer-facing app", color: "#ffffff", kind: "api" } },
@@ -189,10 +197,8 @@ function DraggableEdge({
     if (editingLabel) {
       labelInputRef.current?.focus();
       labelInputRef.current?.select();
-    } else {
-      setLabelDraft(typeof label === "string" ? label : "");
     }
-  }, [editingLabel, label]);
+  }, [editingLabel]);
 
   const finishLabelEditing = () => {
     if (cancelLabelEditRef.current) {
@@ -358,7 +364,7 @@ function makeDocument(id: string, title: string, nodes: FlowNode[], edges: FlowE
 }
 
 function StudioContent() {
-  const { screenToFlowPosition, fitView, fitBounds, getNodesBounds, setViewport: setFlowViewport } = useReactFlow<FlowNode, FlowEdge>();
+  const { screenToFlowPosition, fitView, fitBounds, getNodesBounds, setViewport: setFlowViewport, getViewport, zoomIn, zoomOut } = useReactFlow<FlowNode, FlowEdge>();
   const [diagramId, setDiagramId] = useState("starter-flow");
   const [title, setTitle] = useState("Commerce service flow");
   const [nodes, setNodes] = useNodesState<FlowNode>(seedNodes);
@@ -385,6 +391,11 @@ function StudioContent() {
   const [connectionSourceId, setConnectionSourceId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState("");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [commandIndex, setCommandIndex] = useState(0);
+  const [contextMenu, setContextMenu] = useState<{ left: number; top: number; type: "pane" | "node" | "edge"; id: string | null; flow: { x: number; y: number } } | null>(null);
+  const [quickAdd, setQuickAdd] = useState<{ left: number; top: number; flow: { x: number; y: number } } | null>(null);
   const flowRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const cancelInspectorEdgeLabelRef = useRef(false);
@@ -397,6 +408,37 @@ function StudioContent() {
   const [historyStatus, setHistoryStatus] = useState({ canUndo: false, canRedo: false });
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
+
+  const snapToGridPoint = (point: { x: number; y: number }) => ({
+    x: Math.round(point.x / GRID_STEP) * GRID_STEP,
+    y: Math.round(point.y / GRID_STEP) * GRID_STEP,
+  });
+
+  const viewportCenterFlow = () => {
+    const rect = flowRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  };
+
+  const localMenuPoint = (clientX: number, clientY: number) => {
+    const rect = flowRef.current?.getBoundingClientRect();
+    if (!rect) return { left: clientX, top: clientY };
+    return { left: clientX - rect.left, top: clientY - rect.top };
+  };
+
+  const zoomByPointer = useCallback((factor: number, clientX: number, clientY: number) => {
+    const rect = flowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const current = getViewport();
+    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.zoom * factor));
+    if (nextZoom === current.zoom) return;
+    const point = screenToFlowPosition({ x: clientX, y: clientY });
+    setFlowViewport({
+      x: clientX - rect.left - point.x * nextZoom,
+      y: clientY - rect.top - point.y * nextZoom,
+      zoom: nextZoom,
+    }, { duration: 0 });
+  }, [getViewport, screenToFlowPosition, setFlowViewport]);
 
   const recordHistory = useCallback(() => {
     pastRef.current = [...pastRef.current.slice(-39), { nodes: structuredClone(nodes), edges: structuredClone(edges) }];
@@ -413,6 +455,15 @@ function StudioContent() {
     setEdges((current) => current.map((edge) => ({ ...edge, selected: edge.id === id })));
     setSelectedNodeId(null);
     setSelectedEdgeId(id);
+    const edge = edges.find((candidate) => candidate.id === id);
+    setEdgeLabelDraft(edge && typeof edge.label === "string" ? edge.label : "");
+  }, [edges, setEdges, setNodes]);
+
+  const selectNode = useCallback((id: string) => {
+    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === id })));
+    setEdges((current) => current.map((edge) => ({ ...edge, selected: false })));
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
   }, [setEdges, setNodes]);
 
   const updateSelectedEdge = (updates: Partial<FlowEdge>, createHistory = true) => {
@@ -432,10 +483,6 @@ function StudioContent() {
     const currentLabel = typeof selectedEdge.label === "string" ? selectedEdge.label : "";
     if (nextLabel !== currentLabel) updateSelectedEdge({ label: nextLabel || undefined });
   };
-
-  useEffect(() => {
-    setEdgeLabelDraft(typeof selectedEdge?.label === "string" ? selectedEdge.label : "");
-  }, [selectedEdge?.id, selectedEdge?.label]);
 
   const undo = useCallback(() => {
     const previous = pastRef.current.pop();
@@ -496,11 +543,70 @@ function StudioContent() {
     setSelectedNodeId(pastedNodes[0]?.id ?? null);
   }, [recordHistory, setEdges, setNodes]);
 
+  const duplicateSelection = useCallback(() => {
+    const selectedNodes = nodes.filter((node) => node.selected);
+    if (!selectedNodes.length) return;
+    const selectedIds = new Set(selectedNodes.map((node) => node.id));
+    clipboardRef.current = {
+      nodes: structuredClone(selectedNodes),
+      edges: structuredClone(edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target))),
+    };
+    pasteCountRef.current = 0;
+    pasteSelection();
+  }, [edges, nodes, pasteSelection]);
+
+  const duplicateNode = useCallback((id: string) => {
+    const node = nodes.find((candidate) => candidate.id === id);
+    if (!node) return;
+    clipboardRef.current = { nodes: structuredClone([node]), edges: [] };
+    pasteCountRef.current = 0;
+    pasteSelection();
+  }, [nodes, pasteSelection]);
+
+  const removeNode = useCallback((id: string) => {
+    recordHistory();
+    setNodes((current) => current.filter((node) => node.id !== id));
+    setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id));
+    setSelectedNodeId((current) => (current === id ? null : current));
+  }, [recordHistory, setEdges, setNodes]);
+
+  const removeEdge = useCallback((id: string) => {
+    recordHistory();
+    setEdges((current) => current.filter((edge) => edge.id !== id));
+    setSelectedEdgeId((current) => (current === id ? null : current));
+  }, [recordHistory, setEdges]);
+
   useEffect(() => {
     const handleCanvasShortcuts = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable='true']"))) return;
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandQuery("");
+        setCommandIndex(0);
+        setCommandOpen((open) => !open);
+        return;
+      }
+
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        if (!nodes.some((node) => node.selected)) return;
+        event.preventDefault();
+        const step = event.shiftKey ? GRID_STEP * 4 : GRID_STEP;
+        const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+        const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+        recordHistory();
+        setNodes((current) => current.map((node) => node.selected ? { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } } : node));
+        return;
+      }
+
+      if (event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === "Digit1") {
+        event.preventDefault();
+        void fitView({ padding: 0.16, duration: 220 });
+        return;
+      }
+
+      if (event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === "c") {
         if (!nodes.some((node) => node.selected)) return;
@@ -510,6 +616,10 @@ function StudioContent() {
         if (!clipboardRef.current?.nodes.length) return;
         event.preventDefault();
         pasteSelection();
+      } else if (key === "d") {
+        if (!nodes.some((node) => node.selected)) return;
+        event.preventDefault();
+        duplicateSelection();
       } else if (key === "z") {
         event.preventDefault();
         if (event.shiftKey) redo();
@@ -517,11 +627,17 @@ function StudioContent() {
       } else if (key === "y") {
         event.preventDefault();
         redo();
+      } else if (key === "=" || key === "+") {
+        event.preventDefault();
+        void zoomIn({ duration: 120 });
+      } else if (key === "-" || key === "_") {
+        event.preventDefault();
+        void zoomOut({ duration: 120 });
       }
     };
     window.addEventListener("keydown", handleCanvasShortcuts);
     return () => window.removeEventListener("keydown", handleCanvasShortcuts);
-  }, [copySelection, nodes, pasteSelection, redo, undo]);
+  }, [copySelection, duplicateSelection, fitView, nodes, pasteSelection, redo, undo, recordHistory, setNodes, zoomIn, zoomOut]);
 
   const refreshLibrary = useCallback(async () => {
     setDiagrams(await listLocalDiagrams());
@@ -605,9 +721,67 @@ function StudioContent() {
     return () => window.removeEventListener("keydown", closeImportOnEscape);
   }, [importBusy, importDialogOpen]);
 
+  useEffect(() => {
+    if (!contextMenu && !quickAdd) return;
+    const closeMenus = () => { setContextMenu(null); setQuickAdd(null); };
+    window.addEventListener("pointerdown", closeMenus);
+    return () => window.removeEventListener("pointerdown", closeMenus);
+  }, [contextMenu, quickAdd]);
+
+  useEffect(() => {
+    const closeOverlays = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setContextMenu(null);
+      setQuickAdd(null);
+      setCommandOpen(false);
+    };
+    window.addEventListener("keydown", closeOverlays);
+    return () => window.removeEventListener("keydown", closeOverlays);
+  }, []);
+
+  useEffect(() => {
+    const element = flowRef.current;
+    if (!element) return;
+    const handlePinchWheel = (event: WheelEvent) => {
+      // Trackpad / touchpad pinch arrives as a ctrl-modified wheel event.
+      // Amplify it for smooth, responsive zoom and keep plain scroll panning.
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      zoomByPointer(Math.pow(2, -event.deltaY * PINCH_WHEEL_INTENSITY), event.clientX, event.clientY);
+    };
+    element.addEventListener("wheel", handlePinchWheel, { passive: false, capture: true });
+    return () => element.removeEventListener("wheel", handlePinchWheel, { capture: true });
+  }, [zoomByPointer]);
+
   const onConnect = useCallback((connection: Connection) => {
     recordHistory();
-    setEdges((current) => addEdge({ ...connection, type: "archly", data: { connectionKind: "request" }, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } }, current));
+    const templateKind: ConnectionKind = connectionKind ?? "request";
+    const template = connectionMeta[templateKind];
+    const style = { ...connectionStyle[templateKind] };
+    const useTemplate = Boolean(connectionKind);
+    setEdges((current) => addEdge({
+      ...connection,
+      id: `connection-${crypto.randomUUID()}`,
+      type: "archly",
+      label: useTemplate ? template.label : undefined,
+      animated: useTemplate ? template.animated : undefined,
+      data: { connectionKind: templateKind },
+      style,
+      markerEnd: { type: MarkerType.ArrowClosed, color: style.stroke },
+    }, current));
+    if (connectionKind) {
+      setConnectionKind(null);
+      setConnectionSourceId(null);
+      setToast(`${template.label} connection added`);
+    }
+  }, [connectionKind, recordHistory, setEdges]);
+
+  const onReconnect = useCallback((oldEdge: FlowEdge, newConnection: Connection) => {
+    recordHistory();
+    setEdges((current) => current.map((edge) => edge.id === oldEdge.id
+      ? { ...edge, source: newConnection.source, target: newConnection.target, sourceHandle: newConnection.sourceHandle, targetHandle: newConnection.targetHandle }
+      : edge));
   }, [recordHistory, setEdges]);
 
   const onNodeClick = useCallback((event: ReactMouseEvent, node: FlowNode) => {
@@ -653,13 +827,14 @@ function StudioContent() {
     setToast(`Select a source component for ${connectionMeta[kind].label}.`);
   };
 
-  const addNode = (kind: Kind) => {
+  const addNode = (kind: Kind, position?: { x: number; y: number }) => {
     recordHistory();
     const id = `${kind}-${crypto.randomUUID().slice(0, 7)}`;
+    const point = position ?? viewportCenterFlow();
     const node: FlowNode = {
       id,
       type: "engineering",
-      position: { x: 210 + (nodes.length % 3) * 60, y: 130 + (nodes.length % 4) * 55 },
+      position: snapToGridPoint(point),
       data: { label: `New ${kindMeta[kind].label.toLowerCase()}`, description: "Click to describe this component", kind, color: "#ffffff" },
     };
     setNodes((current) => [...current, node]);
@@ -847,6 +1022,56 @@ function StudioContent() {
   const nodeCount = nodes.length;
   const activeDocumentTitle = useMemo(() => title.trim() || "Untitled flow", [title]);
 
+  const commandQueryLower = commandQuery.trim().toLowerCase();
+  const commandItems = [
+    ...(Object.keys(kindMeta) as Kind[]).map((kind) => ({ id: `add-${kind}`, icon: kindMeta[kind].icon, title: `Add ${kindMeta[kind].label}`, hint: "Component" })),
+    { id: "new-canvas", icon: "＋", title: "Create new canvas", hint: "Canvas" },
+    { id: "open-library", icon: "▦", title: "Open saved canvases", hint: "Canvas" },
+    { id: "import", icon: "↑", title: "Import JSON backup", hint: "Canvas" },
+    { id: "export", icon: "↓", title: "Export JSON backup", hint: "Canvas" },
+    { id: "undo", icon: "↶", title: "Undo", hint: "Edit" },
+    { id: "redo", icon: "↷", title: "Redo", hint: "Edit" },
+    { id: "copy", icon: "⧉", title: "Copy selection", hint: "Edit" },
+    { id: "paste", icon: "⎘", title: "Paste", hint: "Edit" },
+    { id: "duplicate", icon: "❐", title: "Duplicate selection", hint: "Edit" },
+    { id: "delete", icon: "✕", title: "Delete selection", hint: "Edit" },
+    { id: "fit", icon: "⤢", title: "Fit view", hint: "View" },
+    { id: "zoom-in", icon: "＋", title: "Zoom in", hint: "View" },
+    { id: "zoom-out", icon: "－", title: "Zoom out", hint: "View" },
+    { id: "reset-zoom", icon: "◎", title: "Reset zoom to 100%", hint: "View" },
+    { id: "toggle-panels", icon: "☷", title: "Toggle components panel", hint: "View" },
+    { id: "toggle-settings", icon: "⚙", title: "Toggle canvas settings", hint: "View" },
+    { id: "toggle-grid", icon: "⋮", title: "Toggle canvas guide", hint: "View" },
+    { id: "fullscreen", icon: "⛶", title: "Toggle full screen", hint: "View" },
+  ];
+  const filteredCommands = commandQueryLower ? commandItems.filter((command) => `${command.title} ${command.hint}`.toLowerCase().includes(commandQueryLower)) : commandItems;
+  const activeCommandIndex = filteredCommands.length ? Math.min(commandIndex, filteredCommands.length - 1) : 0;
+
+  const runCommand = (id: string) => {
+    if (id.startsWith("add-")) { addNode(id.slice(4) as Kind); return; }
+    switch (id) {
+      case "new-canvas": void createDiagram(); break;
+      case "open-library": setShowLibrary(true); break;
+      case "import": beginImport(); break;
+      case "export": exportDiagram(); break;
+      case "undo": undo(); break;
+      case "redo": redo(); break;
+      case "copy": copySelection(); break;
+      case "paste": pasteSelection(); break;
+      case "duplicate": duplicateSelection(); break;
+      case "delete": if (selectedNodeId) removeSelectedNode(); else if (selectedEdgeId) { removeEdge(selectedEdgeId); setRightPanelOpen(false); } break;
+      case "fit": void fitView({ padding: 0.16, duration: 220 }); break;
+      case "zoom-in": void zoomIn({ duration: 120 }); break;
+      case "zoom-out": void zoomOut({ duration: 120 }); break;
+      case "reset-zoom": void setFlowViewport({ ...viewport, zoom: 1 }, { duration: 150 }); break;
+      case "toggle-panels": setLeftPanelOpen((open) => !open); break;
+      case "toggle-settings": setRightPanelMode("settings"); setRightPanelOpen((open) => !open); break;
+      case "toggle-grid": setShowGrid((visible) => !visible); break;
+      case "fullscreen": void toggleFullscreen(); break;
+      default: break;
+    }
+  };
+
   return (
     <main className="studio-shell">
       <input ref={importFileRef} type="file" accept="application/json,.json" aria-label="Choose an Archly JSON backup" hidden onChange={handleImportFile} />
@@ -915,7 +1140,13 @@ function StudioContent() {
               <button className="toolbar-button primary" onClick={() => addNode("service")}><span>＋</span> Add component</button>
             </div>
           </div>
-          <div className="canvas-workspace" ref={flowRef} style={{ "--canvas-color": canvasColor } as CSSProperties}>
+          <div className="canvas-workspace" ref={flowRef} style={{ "--canvas-color": canvasColor } as CSSProperties} onDoubleClick={(event) => {
+            const element = event.target as HTMLElement;
+            if (!element.classList.contains("react-flow__pane")) return;
+            const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            setContextMenu(null);
+            setQuickAdd({ ...localMenuPoint(event.clientX, event.clientY), flow: snapToGridPoint(point) });
+          }}>
             <div className="canvas-context">
               <div className="context-eyebrow"><span className="context-dot" /> YOUR SYSTEM, MAPPED</div>
             <div className="context-caption">{connectionKind ? connectionSourceId ? "Now click the destination component." : `Choose a source for ${connectionMeta[connectionKind].label}.` : selectedEdge ? "Double-click its label to edit; open Connection details to change its style." : "Drag on empty canvas to select components · Double-click a component to edit its name."}</div>
@@ -939,7 +1170,25 @@ function StudioContent() {
                 setEdges((current) => applyEdgeChanges(changes, current));
               }}
               onConnect={onConnect}
+              onReconnect={onReconnect}
               onNodeClick={onNodeClick}
+              onNodeContextMenu={(event, node) => {
+                event.preventDefault();
+                setQuickAdd(null);
+                selectNode(node.id);
+                setContextMenu({ ...localMenuPoint(event.clientX, event.clientY), type: "node", id: node.id, flow: snapToGridPoint(node.position) });
+              }}
+              onEdgeContextMenu={(event, edge) => {
+                event.preventDefault();
+                setQuickAdd(null);
+                selectEdge(edge.id);
+                setContextMenu({ ...localMenuPoint(event.clientX, event.clientY), type: "edge", id: edge.id, flow: { x: 0, y: 0 } });
+              }}
+              onPaneContextMenu={(event) => {
+                event.preventDefault();
+                setQuickAdd(null);
+                setContextMenu({ ...localMenuPoint(event.clientX, event.clientY), type: "pane", id: null, flow: snapToGridPoint(screenToFlowPosition({ x: event.clientX, y: event.clientY })) });
+              }}
               onNodeDoubleClick={() => {
                 recordHistory();
                 if (connectionKind) {
@@ -955,9 +1204,11 @@ function StudioContent() {
               onNodeDragStop={() => { nodeDragActiveRef.current = false; }}
               onSelectionChange={({ nodes: selected, edges: selectedConnections }) => {
                 setSelectedNodeId(selected[0]?.id ?? null);
-                setSelectedEdgeId(selectedConnections[0]?.id ?? null);
+                const selectedEdgeNode = selectedConnections[0] ?? null;
+                setSelectedEdgeId(selectedEdgeNode?.id ?? null);
+                setEdgeLabelDraft(selectedEdgeNode && typeof selectedEdgeNode.label === "string" ? selectedEdgeNode.label : "");
               }}
-              onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }}
+              onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setContextMenu(null); setQuickAdd(null); }}
               onViewportChange={setViewport}
               onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
               onDrop={(event) => {
@@ -971,13 +1222,18 @@ function StudioContent() {
                 setSelectedNodeId(id);
               }}
               viewport={viewport}
-              minZoom={0.25}
-              maxZoom={1.7}
+              minZoom={MIN_ZOOM}
+              maxZoom={MAX_ZOOM}
               zoomOnDoubleClick={false}
+              snapToGrid
+              snapGrid={[GRID_STEP, GRID_STEP]}
               selectionOnDrag
               selectionMode={SelectionMode.Full}
               panOnDrag={[1, 2]}
               panOnScroll
+              edgesReconnectable
+              connectOnClick
+              multiSelectionKeyCode={["Meta", "Control"]}
               deleteKeyCode={["Backspace", "Delete"]}
               defaultEdgeOptions={{ type: "archly" }}
             >
@@ -987,7 +1243,35 @@ function StudioContent() {
             </ReactFlow>
             </EdgeEditorContext.Provider>
             </HistoryContext.Provider>
-            <div className="canvas-bottom-hint">Drag empty space to select <span className="hint-divider">·</span> Two-finger scroll or Space + drag to pan <span className="hint-divider">·</span> Ctrl/⌘ C, V, Z to copy, paste, undo <span className="hint-divider">·</span> Select an arrow, click +, and drag its bend</div>
+            {contextMenu && <div className="context-menu" style={{ left: contextMenu.left, top: contextMenu.top }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+              {contextMenu.type === "pane" && <>
+                <div className="context-menu-label">Add component</div>
+                {(Object.keys(kindMeta) as Kind[]).map((kind) => <button key={kind} className="context-menu-item" onClick={() => { addNode(kind, contextMenu.flow); setContextMenu(null); }}><span className="context-menu-icon">{kindMeta[kind].icon}</span>{kindMeta[kind].label}</button>)}
+                <div className="context-menu-sep" />
+                <button className="context-menu-item" onClick={() => { pasteSelection(); setContextMenu(null); }}><span className="context-menu-icon">⎘</span>Paste</button>
+                <button className="context-menu-item" onClick={() => { void fitView({ padding: 0.16, duration: 220 }); setContextMenu(null); }}><span className="context-menu-icon">⤢</span>Fit view</button>
+              </>}
+              {contextMenu.type === "node" && <>
+                <div className="context-menu-label">Component</div>
+                <button className="context-menu-item" onClick={() => { setRightPanelMode("inspector"); setRightPanelOpen(true); setContextMenu(null); }}><span className="context-menu-icon">⚙</span>Open details</button>
+                <button className="context-menu-item" onClick={() => { if (contextMenu.id) duplicateNode(contextMenu.id); setContextMenu(null); }}><span className="context-menu-icon">❐</span>Duplicate</button>
+                <div className="context-menu-label">Connect from here</div>
+                {(Object.keys(connectionMeta) as ConnectionKind[]).map((kind) => <button key={kind} className="context-menu-item" onClick={() => { if (contextMenu.id) { setConnectionKind(kind); setConnectionSourceId(contextMenu.id); setToast(`Choose a destination for ${connectionMeta[kind].label}.`); } setContextMenu(null); }}><span className="context-menu-icon">→</span>{connectionMeta[kind].label}</button>)}
+                <div className="context-menu-sep" />
+                <button className="context-menu-item danger" onClick={() => { if (contextMenu.id) removeNode(contextMenu.id); setContextMenu(null); }}><span className="context-menu-icon">✕</span>Delete</button>
+              </>}
+              {contextMenu.type === "edge" && <>
+                <div className="context-menu-label">Connection</div>
+                <button className="context-menu-item" onClick={() => { if (contextMenu.id) selectEdge(contextMenu.id); setRightPanelMode("edge-inspector"); setRightPanelOpen(true); setContextMenu(null); }}><span className="context-menu-icon">⚙</span>Open details</button>
+                <div className="context-menu-sep" />
+                <button className="context-menu-item danger" onClick={() => { if (contextMenu.id) { removeEdge(contextMenu.id); setRightPanelOpen(false); } setContextMenu(null); }}><span className="context-menu-icon">✕</span>Delete</button>
+              </>}
+            </div>}
+            {quickAdd && <div className="context-menu" style={{ left: quickAdd.left, top: quickAdd.top }} role="menu" aria-label="Add a component here" onPointerDown={(event) => event.stopPropagation()}>
+              <div className="context-menu-label">Add here</div>
+              {(Object.keys(kindMeta) as Kind[]).map((kind) => <button key={kind} className="context-menu-item" onClick={() => { addNode(kind, quickAdd.flow); setQuickAdd(null); }}><span className="context-menu-icon">{kindMeta[kind].icon}</span>{kindMeta[kind].label}</button>)}
+            </div>}
+            <div className="canvas-bottom-hint">Double-click the canvas to add a component <span className="hint-divider">·</span> Right-click for options <span className="hint-divider">·</span> Ctrl/⌘ K command palette <span className="hint-divider">·</span> Drag empty space to select <span className="hint-divider">·</span> Arrow keys nudge</div>
           </div>
           <div className="canvas-statusbar"><span><span className={`save-dot ${saveState}`} />{saveState === "saved" ? "Saved locally on this device" : saveState === "saving" ? "Saving to this browser" : "Local save issue"}</span><span className="statusbar-right">Autosave on <span className="status-check">✓</span></span></div>
         </section>
@@ -996,9 +1280,9 @@ function StudioContent() {
           {rightPanelMode === "inspector" && selectedNode ? <>
             <div className="inspector-header"><div><span className="sidebar-label">INSPECTOR</span><h2>Component details</h2></div><button className="icon-button" onClick={() => setRightPanelOpen(false)} aria-label="Close inspector">×</button></div>
             <div className="inspector-card"><div className={`inspector-kind-icon ${kindMeta[selectedNode.data.kind].className}`}>{kindMeta[selectedNode.data.kind].icon}</div><div><span className="node-kind">{kindMeta[selectedNode.data.kind].label}</span><strong>{selectedNode.data.label}</strong></div><button className="more-button" aria-label="Delete component" title="Delete component" onClick={removeSelectedNode}>×</button></div>
-            <label className="field-label" htmlFor="node-name">Name</label><input id="node-name" className="text-field" value={selectedNode.data.label} onChange={(event) => updateSelected("label", event.target.value)} maxLength={80} />
-            <label className="field-label spaced" htmlFor="node-description">Description</label><textarea id="node-description" className="text-field textarea" value={selectedNode.data.description} onChange={(event) => updateSelected("description", event.target.value)} placeholder="What does this component do?" maxLength={280} />
-            <div className="field-label spaced">Component color</div><div className="swatch-row">{["#ffffff", "#e8efff", "#e2f4ee", "#fff0db", "#f7e8fa"].map((color) => <button key={color} aria-label={`Set component color ${color}`} className={`color-swatch ${selectedNode.data.color === color ? "picked" : ""}`} style={{ background: color }} onClick={() => updateSelected("color", color)} />)}<label className="custom-color"><span>＋</span><input type="color" aria-label="Custom component color" value={selectedNode.data.color} onChange={(event) => updateSelected("color", event.target.value)} /></label></div>
+            <label className="field-label" htmlFor="node-name">Name</label><input id="node-name" className="text-field" value={selectedNode.data.label} onFocus={() => recordHistory()} onChange={(event) => updateSelected("label", event.target.value)} maxLength={80} />
+            <label className="field-label spaced" htmlFor="node-description">Description</label><textarea id="node-description" className="text-field textarea" value={selectedNode.data.description} onFocus={() => recordHistory()} onChange={(event) => updateSelected("description", event.target.value)} placeholder="What does this component do?" maxLength={280} />
+            <div className="field-label spaced">Component color</div><div className="swatch-row">{["#ffffff", "#e8efff", "#e2f4ee", "#fff0db", "#f7e8fa"].map((color) => <button key={color} aria-label={`Set component color ${color}`} className={`color-swatch ${selectedNode.data.color === color ? "picked" : ""}`} style={{ background: color }} onClick={() => { recordHistory(); updateSelected("color", color); }} />)}<label className="custom-color"><span>＋</span><input type="color" aria-label="Custom component color" value={selectedNode.data.color} onFocus={() => recordHistory()} onChange={(event) => updateSelected("color", event.target.value)} /></label></div>
             <div className="inspector-divider" />
             <div className="inspector-section-title">CONNECTIONS <span>{edges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id).length}</span></div>
             <div className="connection-list">{edges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id).map((edge) => { const neighborId = edge.source === selectedNode.id ? edge.target : edge.source; const neighbor = nodes.find((node) => node.id === neighborId); return <div className="connection-row" key={edge.id}><span className="connection-line">↔</span><span>{neighbor?.data.label ?? "Component"}</span><small>{edge.label || "connected"}</small></div>; })}{!edges.some((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id) && <p className="muted-note">Connect this component to show its relationships.</p>}</div>
@@ -1018,7 +1302,7 @@ function StudioContent() {
               else delete nextData.connectionKind;
               const nextStyle = nextKind ? { ...connectionStyle[nextKind] } : { ...customConnectionStyle };
               const markerEnd = typeof selectedEdge.markerEnd === "string"
-                ? { type: selectedEdge.markerEnd, color: nextStyle.stroke }
+                ? { type: MarkerType.ArrowClosed, color: nextStyle.stroke }
                 : { ...(selectedEdge.markerEnd ?? { type: MarkerType.ArrowClosed }), color: nextStyle.stroke };
               updateSelectedEdge({ data: nextData, style: nextStyle, animated: nextKind ? connectionMeta[nextKind].animated : false, markerEnd });
             }}>
@@ -1028,7 +1312,7 @@ function StudioContent() {
             <div className="edge-color-control"><input type="color" aria-label="Connection line color" value={typeof selectedEdge.style?.stroke === "string" ? selectedEdge.style.stroke : "#8290a6"} onFocus={() => recordHistory()} onChange={(event) => {
               const color = event.target.value;
               const currentMarker = selectedEdge.markerEnd;
-              const markerEnd = typeof currentMarker === "string" ? { type: currentMarker, color } : currentMarker ? { ...currentMarker, color } : { type: MarkerType.ArrowClosed, color };
+              const markerEnd = typeof currentMarker === "string" ? { type: MarkerType.ArrowClosed, color } : currentMarker ? { ...currentMarker, color } : { type: MarkerType.ArrowClosed, color };
               updateSelectedEdge({ style: { ...selectedEdge.style, stroke: color }, markerEnd }, false);
             }} /><span>{typeof selectedEdge.style?.stroke === "string" ? selectedEdge.style.stroke.toUpperCase() : "#8290A6"}</span></div>
             <label className="field-label spaced" htmlFor="edge-line-style">Line style</label>
@@ -1047,9 +1331,9 @@ function StudioContent() {
             </div>
             <div className="inspector-divider" />
             <div className="settings-section"><div className="settings-label-row"><div><strong>Canvas guide</strong><small>Subtle dots to help with alignment</small></div><button className={`toggle ${showGrid ? "on" : ""}`} role="switch" aria-checked={showGrid} aria-label="Toggle canvas guide" onClick={() => setShowGrid((visible) => !visible)}><i /></button></div></div>
-            <div className="tips-card"><span className="tips-icon">✦</span><div><strong>Quick tip</strong><p>Drag empty canvas to select components together. Pan the canvas with a two-finger scroll, Space + drag, or the middle/right mouse button. Use Ctrl/⌘ C and V to copy and paste, Ctrl/⌘ Z to undo, and Ctrl/⌘ Shift Z to redo. Double-click a component to edit its name. Select an arrow and click + to add a bend, then drag the bend handle to route it. Press Esc to leave full screen.</p></div></div>
+            <div className="tips-card"><span className="tips-icon">✦</span><div><strong>Quick tip</strong><p>Double-click empty canvas to add a component where you point, and right-click any component, arrow, or empty space for quick actions. Press Ctrl/⌘ K for the command palette. Select components and use Arrow keys to nudge, Ctrl/⌘ C, V, D to copy, paste, or duplicate, and Ctrl/⌘ Z to undo. Pan with a two-finger scroll, Space + drag, or the middle/right mouse button. Select an arrow and click + to add a bend, then drag the bend handle to route it.</p></div></div>
           </>}
-          <div className="right-footer"><span>Built for the way systems work</span><span>⌘ K</span></div>
+          <div className="right-footer"><span>Built for the way systems work</span><button className="footer-command" onClick={() => { setCommandQuery(""); setCommandIndex(0); setCommandOpen(true); }} title="Open command palette">⌘ K</button></div>
         </aside>}
       </div>
       {importDialogOpen && <div className="import-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportDialogOpen(false); }}>
@@ -1069,6 +1353,20 @@ function StudioContent() {
             <button className="import-confirm-button" onClick={importBackupAsNewCanvas} disabled={!importPreview || importBusy}>{importBusy ? "Importing..." : "Import as new canvas"}</button>
           </div>
         </section>
+      </div>}
+      {commandOpen && <div className="command-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCommandOpen(false); }}>
+        <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}>
+          <input autoFocus className="command-input" placeholder="Search components, canvases, and actions…" value={commandQuery} onChange={(event) => { setCommandQuery(event.target.value); setCommandIndex(0); }} onKeyDown={(event) => {
+            if (event.key === "ArrowDown") { event.preventDefault(); setCommandIndex((index) => Math.min(index + 1, Math.max(filteredCommands.length - 1, 0))); }
+            else if (event.key === "ArrowUp") { event.preventDefault(); setCommandIndex((index) => Math.max(index - 1, 0)); }
+            else if (event.key === "Enter") { event.preventDefault(); const command = filteredCommands[activeCommandIndex]; if (command) runCommand(command.id); setCommandOpen(false); }
+            else if (event.key === "Escape") { event.preventDefault(); setCommandOpen(false); }
+          }} />
+          <div className="command-list">
+            {filteredCommands.map((command, index) => <button key={command.id} className={`command-item ${index === activeCommandIndex ? "is-active" : ""}`} onMouseEnter={() => setCommandIndex(index)} onClick={() => { runCommand(command.id); setCommandOpen(false); }}><span className="command-icon">{command.icon}</span><span className="command-title">{command.title}</span><span className="command-hint">{command.hint}</span></button>)}
+            {!filteredCommands.length && <p className="command-empty">No matching commands</p>}
+          </div>
+        </div>
       </div>}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
       {saveState === "error" && <div className="storage-warning"><strong>Local saving is unavailable.</strong> Your browser may be blocking site storage. Export a JSON backup before leaving.</div>}

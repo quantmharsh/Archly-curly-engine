@@ -57,3 +57,28 @@ button{color:inherit;cursor:pointer}
 .import-backup-button{width:100%;height:34px;margin-top:6px;border:1px solid #e4e9f2;background:#fff;border-radius:6px;text-align:left;padding:0 9px;color:#66758d;font-size:10px;font-weight:600}.import-backup-button:hover{background:#f8f9fc;border-color:#d8deeb}.import-backup-button span{font-size:14px;margin-right:6px;color:#7084b6}
 .import-dialog-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:18px;background:rgba(27,36,52,.38);backdrop-filter:blur(3px)}.import-dialog{width:min(100%,470px);padding:22px;background:#fff;border:1px solid #e8ebf1;border-radius:13px;box-shadow:0 24px 80px rgba(24,34,52,.25)}.import-dialog-heading{display:flex;align-items:flex-start;justify-content:space-between}.import-dialog-heading h2{margin:6px 0 0;font-size:19px;letter-spacing:-.35px;color:#354157}.import-dialog-copy{margin:13px 0 16px;color:#788598;font-size:12px;line-height:1.55}.import-file-prompt{min-height:112px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border:1px dashed #dce2ec;border-radius:9px;background:#fafbfc;color:#71809a}.import-file-prompt>span{font-size:21px;color:#7890c5}.import-file-prompt strong{font-size:11px;font-weight:650}.import-file-prompt small{font-size:10px;color:#9ba5b3}.import-preview-card{display:flex;align-items:center;gap:11px;min-height:80px;padding:12px;border:1px solid #e5e9f0;border-radius:9px;background:#fafbfc}.import-preview-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;background:#edf1fb;color:#687eb9;font-size:17px;flex:none}.import-preview-copy{min-width:0;display:flex;flex:1;flex-direction:column;gap:4px}.import-preview-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#43516a}.import-preview-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:#8d98a9}.import-valid-mark{color:#5a9b7e;font-size:15px}.import-error{margin:12px 0 0;padding:9px 10px;border:1px solid #f0d6d5;border-radius:7px;background:#fff7f6;color:#ad5e5b;font-size:10px;line-height:1.45}.import-dialog-actions{display:flex;align-items:center;gap:8px;margin-top:18px}.import-dialog-actions>span{flex:1}.import-choose-button,.import-cancel-button,.import-confirm-button{min-height:34px;padding:0 11px;border-radius:6px;font-size:10px;font-weight:600}.import-choose-button,.import-cancel-button{border:1px solid #e3e7ed;background:#fff;color:#68758a}.import-choose-button:hover,.import-cancel-button:hover{background:#f7f8fa}.import-confirm-button{border:1px solid #5c73b2;background:#5c73b2;color:#fff}.import-confirm-button:hover:not(:disabled){background:#475f9f}.import-confirm-button:disabled,.import-cancel-button:disabled,.import-dialog-heading button:disabled{cursor:not-allowed;opacity:.5}
 @media(max-width:520px){.import-dialog{padding:18px}.import-dialog-actions{flex-wrap:wrap}.import-dialog-actions>span{display:none}.import-choose-button{width:100%}.import-cancel-button,.import-confirm-button{flex:1;padding:0 7px}}
+
+/* Canvas speed pass: grabby handles, context menus, and the command palette */
+.engineering-node .react-flow__handle{width:11px;height:11px;border-width:2px;background:#fff;border-color:#97a5bf;transition:transform .12s,background .12s,border-color .12s}
+.engineering-node .react-flow__handle:hover{background:#e8edfa;border-color:#5c74b0;transform:scale(1.28)}
+.engineering-node.is-selected .react-flow__handle{border-color:#5c74b0}
+.context-menu{position:absolute;z-index:30;min-width:188px;max-height:min(70vh,460px);overflow-y:auto;padding:6px;background:#fff;border:1px solid #e6eaf1;border-radius:10px;box-shadow:0 18px 44px rgba(24,34,52,.18)}
+.context-menu-label{padding:6px 9px 4px;font-size:8.5px;font-weight:750;letter-spacing:1px;text-transform:uppercase;color:#a3abb9}
+.context-menu-item{display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;border:0;border-radius:7px;background:transparent;color:#44506a;font-size:11px;font-weight:560;text-align:left}
+.context-menu-item:hover,.context-menu-item:focus-visible{background:#f3f5fa;outline:none}
+.context-menu-item.danger{color:#b76868}
+.context-menu-item.danger:hover{background:#fdf3f2}
+.context-menu-icon{width:15px;text-align:center;color:#7c8aad;font-size:12px}
+.context-menu-sep{height:1px;margin:5px 4px;background:#eef1f5}
+.command-backdrop{position:fixed;inset:0;z-index:60;display:flex;justify-content:center;align-items:flex-start;padding:12vh 18px 18px;background:rgba(24,32,48,.34);backdrop-filter:blur(3px)}
+.command-palette{width:min(100%,520px);background:#fff;border:1px solid #e6eaf1;border-radius:13px;box-shadow:0 26px 80px rgba(24,34,52,.28);overflow:hidden}
+.command-input{width:100%;height:48px;padding:0 16px;border:0;border-bottom:1px solid #eef1f5;outline:none;font-size:13px;color:#2f3b52;background:#fff}
+.command-list{max-height:340px;overflow-y:auto;padding:6px}
+.command-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:#3d4a63;font-size:12px;font-weight:560;text-align:left}
+.command-item.is-active{background:#eef1f8;color:#3f569a}
+.command-icon{width:16px;text-align:center;color:#7c8aad;font-size:13px}
+.command-title{flex:1}
+.command-hint{font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:#a6aebb;font-weight:700}
+.command-empty{padding:16px;color:#98a2b3;font-size:11px;text-align:center}
+.footer-command{border:1px solid #e6e9ef;background:#fff;border-radius:6px;padding:3px 8px;color:#7c88a0;font-size:10px;font-weight:650}
+.footer-command:hover{background:#f6f7fa;color:#5d6f9f}
