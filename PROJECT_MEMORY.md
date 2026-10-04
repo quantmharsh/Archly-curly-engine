@@ -1,4 +1,4 @@
-# AI Engineering Canvas - Project Memory
+﻿# AI Engineering Canvas - Project Memory
 
 Last reviewed: 2026-10-03
 Status: Phase 1A guest-canvas implementation started; account sync remains Phase 1B.
@@ -156,4 +156,21 @@ Still to decide before the relevant phase:
 
 ## Canvas editing update (2026-10-03)
 
-Phase 1A canvas editing now supports marquee selection of fully enclosed components, group movement, copy/paste of selected components and arrows between them (preserving and offsetting bend points), and keyboard undo/redo. Copy and paste shortcuts are ignored while an editable field has focus. The separate testing agent owns verification; see `apps/web/docs/canvas-editing-testing-checklist.md`. No test or build commands were run by the coding agent for this update. Canvas navigation: left-drag on empty canvas draws a marquee selection, and the viewport pans with two-finger or trackpad scroll, Space + drag, or a middle/right mouse drag. Ctrl/⌘ + scroll zooms. An earlier attempt removed `selectionOnDrag` and therefore disabled marquee selection entirely; that was reverted. Note that React Flow only honours `selectionOnDrag` while `panOnDrag` is not the default `true`, which is why `panOnDrag={[1, 2]}` must stay paired with it.
+Phase 1A canvas editing now supports marquee selection of fully enclosed components, group movement, copy/paste of selected components and arrows between them (preserving and offsetting bend points), and keyboard undo/redo. Copy and paste shortcuts are ignored while an editable field has focus. The separate testing agent owns verification; see `apps/web/docs/canvas-editing-testing-checklist.md`. No test or build commands were run by the coding agent for this update. Canvas navigation: left-drag on empty canvas draws a marquee selection, and the viewport pans with two-finger or trackpad scroll, Space + drag, or a middle/right mouse drag. Ctrl/âŒ˜ + scroll zooms. An earlier attempt removed `selectionOnDrag` and therefore disabled marquee selection entirely; that was reverted. Note that React Flow only honours `selectionOnDrag` while `panOnDrag` is not the default `true`, which is why `panOnDrag={[1, 2]}` must stay paired with it.
+
+## JSON backup import policy (2026-10-04)
+
+Guest canvas backups use the existing JSON document format and shared Zod diagram schema. Import previews the validated title and graph counts before confirmation, then creates a new local diagram with a new ID. It never replaces an existing diagram, retains graph/view/appearance/edge-waypoint data, and saves the currently open canvas before switching. Invalid JSON/schema input and files above 10 MB are rejected before local diagrams are changed. This is a local recovery/import feature; it is not guest-to-account merge, which remains a Phase 1B decision.
+
+## Editable connection presentation (2026-10-04)
+
+Connection labels are edited inline by double-clicking the edge label. Relationship category (`request`, `data`, or `event`) is graph metadata separate from React Flow's renderer type (`archly`). Explicit Connection details controls label, category, stroke color, solid/dashed line style, and animation. Persist category in edge `data.connectionKind` and presentation in edge `style`; retain both in export/import and history snapshots. Selecting an edge does not automatically open its details panel.
+
+
+## Edge route label and line-style correction (2026-10-04)
+
+For edges with persisted bend points, the inline label position is derived from the route midpoint and updates with endpoint/bend movement. Dashed edge styling uses a visibly separated pattern and increased minimum stroke width so it can be distinguished from solid styling. These fixes are pending verification by the separate testing agent; see apps/web/docs/canvas-editing-testing-checklist.md.
+
+## Relationship type presentation (2026-10-04)
+
+Connection categories have distinct defaults: HTTPS request is blue and solid, data flow is green and dashed, and event publish is orange and dotted. Changing the category applies that category's visual preset and marker color immediately; changing to Custom restores neutral solid styling. Manual line color/style controls remain available after a preset is chosen. The separate testing agent should verify category switching and custom overrides in apps/web/docs/canvas-editing-testing-checklist.md.

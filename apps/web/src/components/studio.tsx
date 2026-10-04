@@ -26,17 +26,21 @@ import {
   type NodeProps,
   useReactFlow,
 } from "@xyflow/react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { listLocalDiagrams, readLocalDiagram, saveLocalDiagram } from "@/lib/local-db";
-import type { DiagramDocument } from "@/lib/graph-schema";
+import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema";
 
 type Kind = "service" | "database" | "api" | "queue" | "external";
 type ConnectionKind = "request" | "data" | "event";
 type NodeData = { label: string; description: string; color: string; kind: Kind };
 type FlowNode = Node<NodeData, "engineering">;
 type EdgeWaypoint = { x: number; y: number };
-type FlowEdge = Edge<{ waypoints?: EdgeWaypoint[] }>;
+type FlowEdge = Edge<{ waypoints?: EdgeWaypoint[]; connectionKind?: ConnectionKind }>;
 const HistoryContext = createContext<() => void>(() => undefined);
+const EdgeEditorContext = createContext<{
+  updateEdge: (id: string, updates: Partial<FlowEdge>) => void;
+  selectEdge: (id: string) => void;
+}>({ updateEdge: () => undefined, selectEdge: () => undefined });
 
 const kindMeta: Record<Kind, { label: string; icon: string; className: string }> = {
   service: { label: "Service", icon: "◈", className: "kind-service" },
@@ -52,6 +56,13 @@ const connectionMeta: Record<ConnectionKind, { label: string; hint: string; anim
   event: { label: "Event publish", hint: "Queue / async", animated: true, className: "connection-event" },
 };
 
+const connectionStyle: Record<ConnectionKind, { stroke: string; strokeWidth: number; strokeDasharray?: string }> = {
+  request: { stroke: "#3478c9", strokeWidth: 2.2 },
+  data: { stroke: "#21866e", strokeWidth: 2.2, strokeDasharray: "9 6" },
+  event: { stroke: "#d38a2c", strokeWidth: 2.4, strokeDasharray: "2 5" },
+};
+const customConnectionStyle = { stroke: "#8290a6", strokeWidth: 2, strokeDasharray: undefined };
+
 const seedNodes: FlowNode[] = [
   { id: "web-client", type: "engineering", position: { x: 70, y: 185 }, data: { label: "Web client", description: "Customer-facing app", color: "#ffffff", kind: "api" } },
   { id: "order-service", type: "engineering", position: { x: 380, y: 185 }, data: { label: "Order service", description: "Validates and routes orders", color: "#ffffff", kind: "service" } },
@@ -60,9 +71,9 @@ const seedNodes: FlowNode[] = [
 ];
 
 const seedEdges: FlowEdge[] = [
-  { id: "client-order", source: "web-client", target: "order-service", label: "HTTPS", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } },
-  { id: "order-db", source: "order-service", target: "orders-db", label: "read / write", type: "archly", markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } },
-  { id: "order-events", source: "order-service", target: "events", label: "publish", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } },
+  { id: "client-order", source: "web-client", target: "order-service", label: "HTTPS", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "request" } },
+  { id: "order-db", source: "order-service", target: "orders-db", label: "read / write", type: "archly", markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "data" } },
+  { id: "order-events", source: "order-service", target: "events", label: "publish", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "event" } },
 ];
 
 function EngineeringNode({ id, data, selected }: NodeProps<FlowNode>) {
@@ -133,20 +144,70 @@ function getWaypointEdgePath(source: EdgeWaypoint, target: EdgeWaypoint, waypoin
 function DraggableEdge({
   id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
   markerStart, markerEnd, style, selected, data, label,
-  labelStyle, labelShowBg, labelBgStyle, labelBgPadding, labelBgBorderRadius,
+  labelStyle, labelShowBg, labelBgStyle,
 }: EdgeProps<FlowEdge>) {
   const { getEdge, screenToFlowPosition, updateEdgeData } = useReactFlow<FlowNode, FlowEdge>();
   const recordHistory = useContext(HistoryContext);
+  const { updateEdge, selectEdge } = useContext(EdgeEditorContext);
   const dragIndexRef = useRef<number | null>(null);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+  const cancelLabelEditRef = useRef(false);
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(typeof label === "string" ? label : "");
   const waypoints = data?.waypoints ?? [];
   const source = { x: sourceX, y: sourceY };
   const target = { x: targetX, y: targetY };
   const [smoothStepPath, defaultLabelX, defaultLabelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 12 });
   const path = waypoints.length ? getWaypointEdgePath(source, target, waypoints) : smoothStepPath;
-  // React Flow v12 does not pass labelX/labelY to custom edge components; the built-in
-  // edges derive them from the path helper. Do the same so the type and runtime agree.
-  const centerX = defaultLabelX;
-  const centerY = defaultLabelY;
+  // For manually routed edges, anchor the label to the route itself so it follows
+  // dragged bends and endpoint movement instead of staying on the default route.
+  const labelPosition = waypoints.length ? (() => {
+    const points = [source, ...waypoints, target];
+    const lengths = points.slice(0, -1).map((point, index) => Math.hypot(points[index + 1].x - point.x, points[index + 1].y - point.y));
+    const routeLength = lengths.reduce((total, length) => total + length, 0);
+    let remaining = routeLength / 2;
+    for (let index = 0; index < lengths.length; index += 1) {
+      const length = lengths[index];
+      if (remaining <= length || index === lengths.length - 1) {
+        const start = points[index];
+        const end = points[index + 1];
+        const progress = length ? remaining / length : 0;
+        return { x: start.x + (end.x - start.x) * progress, y: start.y + (end.y - start.y) * progress };
+      }
+      remaining -= length;
+    }
+    return { x: defaultLabelX, y: defaultLabelY };
+  })() : { x: defaultLabelX, y: defaultLabelY };
+  const centerX = labelPosition.x;
+  const centerY = labelPosition.y;
+  const categoryStyle = data?.connectionKind ? connectionStyle[data.connectionKind] : customConnectionStyle;
+  const resolvedEdgeStyle = { ...categoryStyle, ...style };
+  const isDashed = Boolean(resolvedEdgeStyle.strokeDasharray);
+  const edgeStyle = isDashed ? { ...resolvedEdgeStyle, strokeWidth: Math.max(Number(resolvedEdgeStyle.strokeWidth) || 0, 2.5) } : resolvedEdgeStyle;
+
+  useEffect(() => {
+    if (editingLabel) {
+      labelInputRef.current?.focus();
+      labelInputRef.current?.select();
+    } else {
+      setLabelDraft(typeof label === "string" ? label : "");
+    }
+  }, [editingLabel, label]);
+
+  const finishLabelEditing = () => {
+    if (cancelLabelEditRef.current) {
+      cancelLabelEditRef.current = false;
+      setLabelDraft(typeof label === "string" ? label : "");
+      setEditingLabel(false);
+      return;
+    }
+    const nextLabel = labelDraft.trim();
+    if (nextLabel !== (typeof label === "string" ? label : "")) {
+      recordHistory();
+      updateEdge(id, { label: nextLabel || undefined });
+    }
+    setEditingLabel(false);
+  };
 
   const moveWaypoint = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const index = dragIndexRef.current;
@@ -172,18 +233,40 @@ function DraggableEdge({
       path={path}
       markerStart={markerStart}
       markerEnd={markerEnd}
-      style={style}
+      style={edgeStyle}
       interactionWidth={24}
-      label={label}
-      labelX={centerX}
-      labelY={centerY}
-      labelStyle={labelStyle}
-      labelShowBg={labelShowBg}
-      labelBgStyle={labelBgStyle}
-      labelBgPadding={labelBgPadding}
-      labelBgBorderRadius={labelBgBorderRadius}
     />
-    {selected && <EdgeLabelRenderer>
+    {(selected || Boolean(label) || editingLabel) && <EdgeLabelRenderer>
+      {(Boolean(label) || selected || editingLabel) && <div
+        className={`edge-label-anchor nodrag nopan ${selected ? "is-selected" : ""}`}
+        style={{ ...labelStyle, ...(labelShowBg ? labelBgStyle : {}), transform: `translate(-50%,-50%) translate(${centerX}px,${centerY}px)` }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelLabelEditRef.current = false;
+          setLabelDraft(typeof label === "string" ? label : "");
+          setEditingLabel(true);
+        }}
+      >{editingLabel ? <input
+        ref={labelInputRef}
+        className="edge-label-input nodrag nopan"
+        aria-label="Connection label"
+        maxLength={100}
+        value={labelDraft}
+        onPointerDown={(event) => event.stopPropagation()}
+        onChange={(event) => setLabelDraft(event.target.value)}
+        onBlur={finishLabelEditing}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") labelInputRef.current?.blur();
+          if (event.key === "Escape") { cancelLabelEditRef.current = true; labelInputRef.current?.blur(); }
+        }}
+      /> : <button
+        className="edge-label-text"
+        type="button"
+        title="Double-click to edit connection label"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => { event.stopPropagation(); selectEdge(id); }}
+      >{typeof label === "string" && label ? label : "Add label"}</button>}</div>}
       <button
         className="edge-add-bend nodrag nopan"
         aria-label="Add a draggable bend to this arrow"
@@ -249,7 +332,7 @@ function makeDocument(id: string, title: string, nodes: FlowNode[], edges: FlowE
     graph: {
       schemaVersion: 1,
       nodes: nodes.map(({ id: nodeId, position, data }) => ({ id: nodeId, type: "engineering" as const, position, data })),
-      edges: edges.map(({ id: edgeId, source, target, label, type, animated, markerEnd, data }) => ({
+      edges: edges.map(({ id: edgeId, source, target, label, type, animated, markerEnd, style, data }) => ({
         id: edgeId,
         source,
         target,
@@ -261,7 +344,11 @@ function makeDocument(id: string, title: string, nodes: FlowNode[], edges: FlowE
             ? { type: markerEnd }
             : { type: String(markerEnd.type), color: markerEnd.color ?? undefined }
           : undefined,
-        data: data?.waypoints?.length ? { waypoints: data.waypoints } : undefined,
+        style: style ? { ...style } : undefined,
+        data: data && (data.waypoints?.length || data.connectionKind) ? {
+          ...(data.waypoints?.length ? { waypoints: data.waypoints } : {}),
+          ...(data.connectionKind ? { connectionKind: data.connectionKind } : {}),
+        } : undefined,
       })),
       viewport,
       canvasColor,
@@ -279,13 +366,19 @@ function StudioContent() {
   const [canvasColor, setCanvasColor] = useState("#f6f7fb");
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [edgeLabelDraft, setEdgeLabelDraft] = useState("");
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [rightPanelMode, setRightPanelMode] = useState<"settings" | "inspector">("settings");
+  const [rightPanelMode, setRightPanelMode] = useState<"settings" | "inspector" | "edge-inspector">("settings");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [diagrams, setDiagrams] = useState<DiagramDocument[]>([]);
   const [saveState, setSaveState] = useState<"saving" | "saved" | "error">("saved");
   const [showLibrary, setShowLibrary] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<{ document: DiagramDocument; fileName: string } | null>(null);
+  const [importError, setImportError] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
   const [showCanvasColors, setShowCanvasColors] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [connectionKind, setConnectionKind] = useState<ConnectionKind | null>(null);
@@ -293,6 +386,8 @@ function StudioContent() {
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState("");
   const flowRef = useRef<HTMLDivElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const cancelInspectorEdgeLabelRef = useRef(false);
   const fullscreenPreviousViewportRef = useRef<Viewport | null>(null);
   const pastRef = useRef<Snapshot[]>([]);
   const futureRef = useRef<Snapshot[]>([]);
@@ -301,12 +396,46 @@ function StudioContent() {
   const nodeDragActiveRef = useRef(false);
   const [historyStatus, setHistoryStatus] = useState({ canUndo: false, canRedo: false });
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+  const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
 
   const recordHistory = useCallback(() => {
     pastRef.current = [...pastRef.current.slice(-39), { nodes: structuredClone(nodes), edges: structuredClone(edges) }];
     futureRef.current = [];
     setHistoryStatus({ canUndo: true, canRedo: false });
   }, [edges, nodes]);
+
+  const updateEdge = useCallback((id: string, updates: Partial<FlowEdge>) => {
+    setEdges((current) => current.map((edge) => edge.id === id ? { ...edge, ...updates } : edge));
+  }, [setEdges]);
+
+  const selectEdge = useCallback((id: string) => {
+    setNodes((current) => current.map((node) => ({ ...node, selected: false })));
+    setEdges((current) => current.map((edge) => ({ ...edge, selected: edge.id === id })));
+    setSelectedNodeId(null);
+    setSelectedEdgeId(id);
+  }, [setEdges, setNodes]);
+
+  const updateSelectedEdge = (updates: Partial<FlowEdge>, createHistory = true) => {
+    if (!selectedEdgeId) return;
+    if (createHistory) recordHistory();
+    updateEdge(selectedEdgeId, updates);
+  };
+
+  const commitInspectorEdgeLabel = () => {
+    if (!selectedEdge) return;
+    if (cancelInspectorEdgeLabelRef.current) {
+      cancelInspectorEdgeLabelRef.current = false;
+      setEdgeLabelDraft(typeof selectedEdge.label === "string" ? selectedEdge.label : "");
+      return;
+    }
+    const nextLabel = edgeLabelDraft.trim();
+    const currentLabel = typeof selectedEdge.label === "string" ? selectedEdge.label : "";
+    if (nextLabel !== currentLabel) updateSelectedEdge({ label: nextLabel || undefined });
+  };
+
+  useEffect(() => {
+    setEdgeLabelDraft(typeof selectedEdge?.label === "string" ? selectedEdge.label : "");
+  }, [selectedEdge?.id, selectedEdge?.label]);
 
   const undo = useCallback(() => {
     const previous = pastRef.current.pop();
@@ -467,9 +596,18 @@ function StudioContent() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!importDialogOpen) return;
+    const closeImportOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !importBusy) setImportDialogOpen(false);
+    };
+    window.addEventListener("keydown", closeImportOnEscape);
+    return () => window.removeEventListener("keydown", closeImportOnEscape);
+  }, [importBusy, importDialogOpen]);
+
   const onConnect = useCallback((connection: Connection) => {
     recordHistory();
-    setEdges((current) => addEdge({ ...connection, type: "archly", markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } }, current));
+    setEdges((current) => addEdge({ ...connection, type: "archly", data: { connectionKind: "request" }, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" } }, current));
   }, [recordHistory, setEdges]);
 
   const onNodeClick = useCallback((event: ReactMouseEvent, node: FlowNode) => {
@@ -495,6 +633,7 @@ function StudioContent() {
       label: template.label,
       type: "archly",
       animated: template.animated,
+      data: { connectionKind },
       markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" },
     }, current));
     setConnectionKind(null);
@@ -542,6 +681,7 @@ function StudioContent() {
     futureRef.current = [];
     setHistoryStatus({ canUndo: false, canRedo: false });
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     setShowLibrary(false);
     await refreshLibrary();
     setToast("New local canvas created");
@@ -561,7 +701,93 @@ function StudioContent() {
     futureRef.current = [];
     setHistoryStatus({ canUndo: false, canRedo: false });
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     setShowLibrary(false);
+  };
+
+  const beginImport = () => {
+    if (!loaded) return;
+    setShowLibrary(false);
+    setImportPreview(null);
+    setImportError("");
+    setImportDialogOpen(true);
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setImportPreview(null);
+    setImportError("");
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setImportError("Choose an Archly JSON backup file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setImportError("This backup is larger than the 10 MB import limit.");
+      return;
+    }
+
+    let contents: unknown;
+    try {
+      contents = JSON.parse(await file.text());
+    } catch {
+      setImportError("This file is not valid JSON. Your existing canvases have not changed.");
+      return;
+    }
+    const result = diagramDocumentSchema.safeParse(contents);
+    if (!result.success) {
+      setImportError("This file is not a valid Archly canvas backup: " + result.error.issues[0]?.message);
+      return;
+    }
+    setImportPreview({ document: result.data, fileName: file.name });
+  };
+
+  const importBackupAsNewCanvas = async () => {
+    if (!importPreview || importBusy) return;
+    setImportBusy(true);
+    setImportError("");
+    try {
+      const now = Date.now();
+      const imported = {
+        ...importPreview.document,
+        id: crypto.randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // Flush the open canvas before switching so its latest edits survive the import.
+      const current = makeDocument(diagramId, title.trim() || "Untitled flow", nodes, edges, canvasColor, viewport, showGrid);
+      try {
+        const existing = await readLocalDiagram(diagramId);
+        current.createdAt = existing?.createdAt ?? current.createdAt;
+      } catch {
+        // Preserve the current in-memory canvas even if an older local record is invalid.
+      }
+      await saveLocalDiagram(current);
+      await saveLocalDiagram(imported);
+
+      setDiagramId(imported.id);
+      setTitle(imported.title);
+      setNodes(imported.graph.nodes as FlowNode[]);
+      setEdges(imported.graph.edges.map((edge) => ({ ...edge, type: "archly" })) as FlowEdge[]);
+      setCanvasColor(imported.graph.canvasColor);
+      setViewport(imported.graph.viewport);
+      setShowGrid(imported.graph.showGrid);
+      pastRef.current = [];
+      futureRef.current = [];
+      setHistoryStatus({ canUndo: false, canRedo: false });
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSaveState("saved");
+      setImportDialogOpen(false);
+      await refreshLibrary().catch(() => undefined);
+      setToast("Imported " + imported.title + " as a new canvas");
+    } catch {
+      setImportError("The backup could not be saved. Your open canvas has been preserved; try again.");
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const updateSelected = (key: keyof NodeData, value: string) => {
@@ -575,6 +801,7 @@ function StudioContent() {
     setNodes((current) => current.filter((node) => node.id !== selectedNodeId));
     setEdges((current) => current.filter((edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId));
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   };
 
   const exportDiagram = () => {
@@ -622,6 +849,7 @@ function StudioContent() {
 
   return (
     <main className="studio-shell">
+      <input ref={importFileRef} type="file" accept="application/json,.json" aria-label="Choose an Archly JSON backup" hidden onChange={handleImportFile} />
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><span /><span /><span /></div>
@@ -636,6 +864,7 @@ function StudioContent() {
           {showLibrary && <div className="library-popover">
             <div className="popover-heading"><div><strong>Your canvases</strong><small>Saved in this browser</small></div><button className="icon-button small" onClick={() => setShowLibrary(false)} aria-label="Close canvas list">×</button></div>
             <button className="new-diagram-button" onClick={createDiagram}><span>＋</span> Create a new canvas</button>
+            <button className="import-backup-button" onClick={beginImport}><span>↑</span> Import JSON backup</button>
             <div className="diagram-list">{diagrams.map((diagram) => <button key={diagram.id} className={`diagram-row ${diagram.id === diagramId ? "current" : ""}`} onClick={() => openDiagram(diagram.id)}><span className="diagram-row-icon">◈</span><span className="diagram-row-copy"><strong>{diagram.title || "Untitled flow"}</strong><small>{diagram.graph.nodes.length} components · Edited {new Date(diagram.updatedAt).toLocaleDateString()}</small></span>{diagram.id === diagramId && <span className="current-dot" />}</button>)}</div>
           </div>}
         </div>
@@ -676,6 +905,7 @@ function StudioContent() {
               <button className={`toolbar-button icon-only panel-toggle ${leftPanelOpen ? "is-active" : ""}`} onClick={() => setLeftPanelOpen((open) => !open)} aria-label={leftPanelOpen ? "Hide components panel" : "Show components panel"} title={leftPanelOpen ? "Hide components panel" : "Show components panel"}>☷</button>
               <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "settings" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "settings") setRightPanelOpen(false); else { setRightPanelMode("settings"); setRightPanelOpen(true); } }} aria-label="Toggle canvas settings" title="Canvas settings">⚙</button>
               {selectedNode && <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "inspector" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "inspector") setRightPanelOpen(false); else { setRightPanelMode("inspector"); setRightPanelOpen(true); } }} aria-label="Toggle component details" title="Component details">☰</button>}
+              {selectedEdge && <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "edge-inspector" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "edge-inspector") setRightPanelOpen(false); else { setRightPanelMode("edge-inspector"); setRightPanelOpen(true); } }} aria-label="Toggle connection details" title="Connection details">↔</button>}
               <button className="toolbar-button icon-only full-screen-toggle" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"} aria-pressed={isFullscreen} title="Full screen">⛶</button>
               <button className="toolbar-button" onClick={exportDiagram}><span>↓</span> Export</button>
               <span className="toolbar-separator" />
@@ -688,12 +918,13 @@ function StudioContent() {
           <div className="canvas-workspace" ref={flowRef} style={{ "--canvas-color": canvasColor } as CSSProperties}>
             <div className="canvas-context">
               <div className="context-eyebrow"><span className="context-dot" /> YOUR SYSTEM, MAPPED</div>
-            <div className="context-caption">{connectionKind ? connectionSourceId ? "Now click the destination component." : `Choose a source for ${connectionMeta[connectionKind].label}.` : "Drag on empty canvas to select components · Double-click a component to edit its name."}</div>
+            <div className="context-caption">{connectionKind ? connectionSourceId ? "Now click the destination component." : `Choose a source for ${connectionMeta[connectionKind].label}.` : selectedEdge ? "Double-click its label to edit; open Connection details to change its style." : "Drag on empty canvas to select components · Double-click a component to edit its name."}</div>
             </div>
             <div className="canvas-count"><span className="count-icon">◈</span>{nodeCount} components <span className="count-divider">·</span> {edges.length} connections</div>
             {isFullscreen && <div className="fullscreen-exit-hint"><kbd>Esc</kbd> to exit full screen</div>}
             {!nodeCount && <div className="empty-canvas"><div className="empty-orbit"><span>◈</span></div><h2>Start with a component</h2><p>Drag one from the components panel, or add a service to begin mapping your system.</p><button onClick={() => addNode("service")}>＋ Add your first component</button></div>}
             <HistoryContext.Provider value={recordHistory}>
+            <EdgeEditorContext.Provider value={{ updateEdge, selectEdge }}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -722,8 +953,11 @@ function StudioContent() {
                 recordHistory();
               }}
               onNodeDragStop={() => { nodeDragActiveRef.current = false; }}
-              onSelectionChange={({ nodes: selected }) => setSelectedNodeId(selected[0]?.id ?? null)}
-              onPaneClick={() => setSelectedNodeId(null)}
+              onSelectionChange={({ nodes: selected, edges: selectedConnections }) => {
+                setSelectedNodeId(selected[0]?.id ?? null);
+                setSelectedEdgeId(selectedConnections[0]?.id ?? null);
+              }}
+              onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }}
               onViewportChange={setViewport}
               onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
               onDrop={(event) => {
@@ -751,6 +985,7 @@ function StudioContent() {
               <Controls position="bottom-left" showInteractive={false} />
               <MiniMap position="bottom-right" pannable zoomable nodeColor={(node) => (node.data as NodeData).kind === "database" ? "#72a797" : (node.data as NodeData).kind === "service" ? "#8094d3" : "#cf9b6b"} maskColor="rgba(250,251,253,.72)" />
             </ReactFlow>
+            </EdgeEditorContext.Provider>
             </HistoryContext.Provider>
             <div className="canvas-bottom-hint">Drag empty space to select <span className="hint-divider">·</span> Two-finger scroll or Space + drag to pan <span className="hint-divider">·</span> Ctrl/⌘ C, V, Z to copy, paste, undo <span className="hint-divider">·</span> Select an arrow, click +, and drag its bend</div>
           </div>
@@ -767,6 +1002,41 @@ function StudioContent() {
             <div className="inspector-divider" />
             <div className="inspector-section-title">CONNECTIONS <span>{edges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id).length}</span></div>
             <div className="connection-list">{edges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id).map((edge) => { const neighborId = edge.source === selectedNode.id ? edge.target : edge.source; const neighbor = nodes.find((node) => node.id === neighborId); return <div className="connection-row" key={edge.id}><span className="connection-line">↔</span><span>{neighbor?.data.label ?? "Component"}</span><small>{edge.label || "connected"}</small></div>; })}{!edges.some((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id) && <p className="muted-note">Connect this component to show its relationships.</p>}</div>
+          </> : rightPanelMode === "edge-inspector" && selectedEdge ? <>
+            <div className="inspector-header"><div><span className="sidebar-label">CONNECTION</span><h2>Connection details</h2></div><button className="icon-button" onClick={() => setRightPanelOpen(false)} aria-label="Close connection details">×</button></div>
+            <div className="edge-inspector-route"><span>{nodes.find((node) => node.id === selectedEdge.source)?.data.label ?? "Source"}</span><i>→</i><span>{nodes.find((node) => node.id === selectedEdge.target)?.data.label ?? "Destination"}</span></div>
+            <label className="field-label" htmlFor="edge-label">Label</label>
+            <input id="edge-label" className="text-field" value={edgeLabelDraft} onChange={(event) => setEdgeLabelDraft(event.target.value)} onBlur={commitInspectorEdgeLabel} onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") { cancelInspectorEdgeLabelRef.current = true; setEdgeLabelDraft(typeof selectedEdge.label === "string" ? selectedEdge.label : ""); event.currentTarget.blur(); }
+            }} maxLength={100} placeholder="Add a connection label" />
+            <label className="field-label spaced" htmlFor="edge-kind">Relationship</label>
+            <select id="edge-kind" className="text-field" value={selectedEdge.data?.connectionKind ?? "custom"} onChange={(event) => {
+              const nextData = { ...selectedEdge.data };
+              const nextKind = event.target.value === "custom" ? undefined : event.target.value as ConnectionKind;
+              if (nextKind) nextData.connectionKind = nextKind;
+              else delete nextData.connectionKind;
+              const nextStyle = nextKind ? { ...connectionStyle[nextKind] } : { ...customConnectionStyle };
+              const markerEnd = typeof selectedEdge.markerEnd === "string"
+                ? { type: selectedEdge.markerEnd, color: nextStyle.stroke }
+                : { ...(selectedEdge.markerEnd ?? { type: MarkerType.ArrowClosed }), color: nextStyle.stroke };
+              updateSelectedEdge({ data: nextData, style: nextStyle, animated: nextKind ? connectionMeta[nextKind].animated : false, markerEnd });
+            }}>
+              <option value="custom">Custom</option><option value="request">HTTPS request</option><option value="data">Data flow</option><option value="event">Event publish</option>
+            </select>
+            <div className="field-label spaced">Line color</div>
+            <div className="edge-color-control"><input type="color" aria-label="Connection line color" value={typeof selectedEdge.style?.stroke === "string" ? selectedEdge.style.stroke : "#8290a6"} onFocus={() => recordHistory()} onChange={(event) => {
+              const color = event.target.value;
+              const currentMarker = selectedEdge.markerEnd;
+              const markerEnd = typeof currentMarker === "string" ? { type: currentMarker, color } : currentMarker ? { ...currentMarker, color } : { type: MarkerType.ArrowClosed, color };
+              updateSelectedEdge({ style: { ...selectedEdge.style, stroke: color }, markerEnd }, false);
+            }} /><span>{typeof selectedEdge.style?.stroke === "string" ? selectedEdge.style.stroke.toUpperCase() : "#8290A6"}</span></div>
+            <label className="field-label spaced" htmlFor="edge-line-style">Line style</label>
+            <select id="edge-line-style" className="text-field" value={selectedEdge.style?.strokeDasharray ? "dashed" : "solid"} onChange={(event) => updateSelectedEdge({ style: { ...selectedEdge.style, strokeDasharray: event.target.value === "dashed" ? "10 7" : undefined } })}>
+              <option value="solid">Solid</option><option value="dashed">Dashed</option>
+            </select>
+            <div className="settings-section edge-animation-setting"><div className="settings-label-row"><div><strong>Animate line</strong><small>Show movement along this connection</small></div><button className={`toggle ${selectedEdge.animated ? "on" : ""}`} role="switch" aria-checked={Boolean(selectedEdge.animated)} aria-label="Toggle connection animation" onClick={() => updateSelectedEdge({ animated: !selectedEdge.animated })}><i /></button></div></div>
+            <button className="edge-delete-button" onClick={() => { recordHistory(); setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setSelectedEdgeId(null); setRightPanelOpen(false); }}>Delete connection</button>
           </> : <>
             <div className="inspector-header"><div><span className="sidebar-label">CANVAS</span><h2>Canvas settings</h2></div><button className="icon-button" onClick={() => setRightPanelOpen(false)} aria-label="Close canvas settings">×</button></div>
             <div className="settings-intro"><div className="settings-art"><span className="art-dot dot-one" /><span className="art-dot dot-two" /><span className="art-dot dot-three" /><span className="art-node">◈</span></div><strong>Make it yours</strong><p>Set the mood for your workspace. Your choices save with this canvas.</p></div>
@@ -782,6 +1052,24 @@ function StudioContent() {
           <div className="right-footer"><span>Built for the way systems work</span><span>⌘ K</span></div>
         </aside>}
       </div>
+      {importDialogOpen && <div className="import-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportDialogOpen(false); }}>
+        <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
+          <div className="import-dialog-heading"><div><span className="sidebar-label">LOCAL BACKUP</span><h2 id="import-dialog-title">Import a canvas</h2></div><button className="icon-button" onClick={() => setImportDialogOpen(false)} aria-label="Close import dialog" disabled={importBusy}>×</button></div>
+          <p className="import-dialog-copy">Choose an Archly JSON backup. We validate it before saving, and import it as a new canvas so existing canvases are never replaced.</p>
+          {importPreview ? <div className="import-preview-card">
+            <span className="import-preview-icon">◈</span>
+            <div className="import-preview-copy"><strong>{importPreview.document.title}</strong><small>{importPreview.fileName}</small><small>{importPreview.document.graph.nodes.length} components · {importPreview.document.graph.edges.length} connections</small></div>
+            <span className="import-valid-mark" aria-label="Backup validated">✓</span>
+          </div> : <div className="import-file-prompt"><span>↑</span><strong>Select a backup file</strong><small>Archly JSON files up to 10 MB</small></div>}
+          {importError && <p className="import-error" role="alert">{importError}</p>}
+          <div className="import-dialog-actions">
+            <button className="import-choose-button" onClick={() => importFileRef.current?.click()} disabled={importBusy}>Choose JSON file</button>
+            <span />
+            <button className="import-cancel-button" onClick={() => setImportDialogOpen(false)} disabled={importBusy}>Cancel</button>
+            <button className="import-confirm-button" onClick={importBackupAsNewCanvas} disabled={!importPreview || importBusy}>{importBusy ? "Importing..." : "Import as new canvas"}</button>
+          </div>
+        </section>
+      </div>}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
       {saveState === "error" && <div className="storage-warning"><strong>Local saving is unavailable.</strong> Your browser may be blocking site storage. Export a JSON backup before leaving.</div>}
     </main>

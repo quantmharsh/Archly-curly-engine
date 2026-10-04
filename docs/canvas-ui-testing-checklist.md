@@ -51,3 +51,24 @@ Use this checklist to review the Phase 1A canvas workspace, inline component ren
 ## Report back
 
 Record viewport/browser, steps, expected result, actual result, and any console errors. File issues by behavior (panel layout, rename, persistence, or regression) and include a screenshot when the layout is involved.
+
+## JSON backup import and recovery
+
+- [ ] Open My canvases and choose Import JSON backup. Confirm the dialog states imports create a new canvas and do not replace existing ones.
+- [ ] Select a valid exported backup and confirm the preview shows title, filename, component count, and connection count before import is enabled.
+- [ ] Cancel after preview and confirm no diagram is created or changed.
+- [ ] Import a backup and confirm nodes, edges, edge labels, waypoint routes, viewport, canvas color, and grid are restored in a new canvas.
+- [ ] Confirm the previously open canvas and its most recent edits remain saved in the library.
+- [ ] Import the same file twice and confirm unique IDs and no overwrites.
+- [ ] Try malformed JSON, schema-invalid JSON, a non-JSON file, and a file above 10 MB. Confirm clear errors and no local diagram changes.
+- [ ] Edit and reload the imported canvas; confirm it persists normally.
+- [ ] Re-select the same file after an invalid attempt and confirm the picker processes it again.
+
+## Connection label and style editing
+
+- [ ] Double-click a labeled edge to edit its label; check commit by Enter/blur and cancel by Escape.
+- [ ] Select an edge and explicitly open Connection details. Confirm selection alone does not open the panel.
+- [ ] Change category, color, solid/dashed style, and animation. Confirm source, target, and bend points do not change.
+- [ ] Undo/redo each edge change and deletion.
+- [ ] Save, export, reload, and import a diagram. Confirm label, category, stroke color/style, and animation persist.
+- [ ] Open a legacy diagram without category/style metadata and confirm it renders and can be edited.

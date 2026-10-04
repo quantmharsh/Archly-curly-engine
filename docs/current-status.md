@@ -1,6 +1,6 @@
 # Archly Current Status
 
-Last verified: 2026-10-03
+Last verified: 2026-10-04
 
 ## Current Phase
 
@@ -14,10 +14,10 @@ The repository contains one Next.js web app with a client-side engineering canva
 
 - Next.js App Router app shell and metadata: `apps/web/src/app/layout.tsx`, `apps/web/src/app/page.tsx`.
 - React Flow canvas with a seeded commerce flow; service, database, API, queue, and external component types; component creation, movement, editing, deletion, and node connections: `apps/web/src/components/studio.tsx`.
-- Connection palette offering HTTPS request, data flow, and event publish. Choosing a template and clicking source then destination creates a labeled directed edge. Dragging between node handles remains available. A selected arrow can have draggable bend points added to route it; waypoint coordinates are stored on the edge.
+- Connection palette offering HTTPS request, data flow, and event publish. Choosing a template and clicking source then destination creates a labeled directed edge. Dragging between node handles remains available. A selected arrow can have draggable bend points added to route it; waypoint coordinates are stored on the edge. Double-click an edge label to edit it inline; explicit Connection details control relationship category, line color, solid/dashed style, and animation.
 - The canvas is the primary workspace; the build and right-side settings/details panels close independently. Node selection does not open the inspector; the user opens component details explicitly. Double-clicking a component starts inline name editing.
 - Full-screen mode uses the canvas element as the browser fullscreen target, fits the diagram into view, hides the rest of the app, and exits with Escape.
-- Canvas presets/custom color, component colors, grid toggle, diagram library, debounced autosave, in-memory undo/redo, and JSON export: `apps/web/src/components/studio.tsx`, `apps/web/src/app/globals.css`.
+- Canvas presets/custom color, component colors, grid toggle, diagram library, debounced autosave, in-memory undo/redo, JSON export, and validated import as a new local canvas: `apps/web/src/components/studio.tsx`, `apps/web/src/app/globals.css`.
 - Version 1 Zod graph and diagram schemas, including unique node/edge IDs and edge endpoint validation: `apps/web/src/lib/graph-schema.ts`.
 - Dexie/IndexedDB guest persistence using database `archly-guest-canvas` and table `diagrams`: `apps/web/src/lib/local-db.ts`.
 - Local setup instructions: `apps/web/README.md`.
@@ -25,9 +25,9 @@ The repository contains one Next.js web app with a client-side engineering canva
 
 ## Partially Implemented
 
-- Connection labels and styles are limited to the three templates or default handle-drag edge. Existing edge labels/styles have no inspector. A selected edge can be reshaped with persisted draggable waypoint handles.
+- Connection editing now supports inline labels and an explicit details panel for relationship category, line color, solid/dashed style, and animation. The latest edge editor is awaiting the separate testing agent. A selected edge can also be reshaped with persisted draggable waypoint handles.
 - Undo/redo is in-memory and only records selected graph operations. It is not durable version history; text, description, title, and appearance edits are not recorded as undo snapshots.
-- Guest persistence is browser-profile/device scoped. JSON export exists, but importing a backup does not.
+- Guest persistence is browser-profile/device scoped. JSON export exists, and validated JSON backup import creates a new canvas without replacing existing diagrams.
 - The sign-in button is a placeholder that displays a Phase 1B message; there is no authentication or account sync.
 
 ## Not Implemented
@@ -85,9 +85,8 @@ No Dockerfile, Docker Compose file, database container, cache, queue, or server 
 
 ## Known Issues
 
-- Automated coverage currently includes graph validation and local diagram persistence; the latest draggable-edge and fullscreen UI changes remain untested pending the separate testing agent's review.
-- Local browser storage can be cleared or evicted. Guests need their exported JSON backup to recover data; no backup import or cloud recovery exists.
-- Existing edge labels/styles cannot be edited in an inspector. The three palette templates are the only labeled connection choices.
+- Automated coverage currently includes graph validation and local diagram persistence; the latest edge editing, draggable routes, and fullscreen UI remain pending the separate testing agent's review.
+- Local browser storage can be cleared or evicted. Guests can recover from an exported JSON backup; there is no cloud recovery.
 - Undo/redo is not a persisted version history and does not cover every field/settings edit.
 - Palette-created node positions repeat on a small deterministic grid as the node count grows and may overlap.
 - Production `next build` has not been verified in this handoff.
@@ -102,3 +101,16 @@ No environment variables are required by the current app.
 ## Latest canvas editing update
 
 Area-drag selection selects fully enclosed components; dragging a selection moves the group. Ctrl/Cmd+C and Ctrl/Cmd+V duplicate selected nodes plus arrows whose endpoints are both selected, with remapped IDs and shifted waypoint coordinates. Ctrl/Cmd+Z undoes and Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes. Keyboard shortcuts do not run inside editable fields. The separate testing agent has the checklist at `apps/web/docs/canvas-editing-testing-checklist.md`; this change has not been tested by the coding agent.
+
+## JSON backup import update (2026-10-04)
+
+A guest can select an Archly JSON backup, inspect a validated preview, and import it as a new local canvas. Existing diagrams are not overwritten, the currently open canvas is flushed before switching, and malformed/invalid files or files above 10 MB are rejected. Imported graph, viewport, appearance, and edge waypoint data use the existing document schema. The coding agent did not run checks for this change; the import QA scenarios are in `apps/web/docs/canvas-editing-testing-checklist.md`. The user separately confirmed JSON backup import, multi-selection, group movement, copy/paste, and undo interactions work as expected; edge editing is newly implemented and not yet verified.
+
+
+## 2026-10-04 edge presentation fixes
+
+Fixed the reported connection label position issue on manually routed arrows and increased dashed-line visibility. These source changes have not been checked by the coding agent per user instruction. The testing handoff includes both regression cases.
+
+## 2026-10-04 relationship presentation fix
+
+Relationship categories now apply distinct line color/pattern presets, and changing the category updates the arrow presentation immediately. The separate testing agent should verify category switching and manual style overrides using the canvas editing checklist. No checks were run by the coding agent.

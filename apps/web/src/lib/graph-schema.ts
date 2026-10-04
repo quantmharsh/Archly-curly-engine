@@ -24,7 +24,15 @@ export const graphEdgeSchema = z.object({
   type: z.string().optional(),
   animated: z.boolean().optional(),
   markerEnd: z.object({ type: z.string(), color: z.string().optional() }).optional(),
-  data: z.object({ waypoints: z.array(pointSchema).optional() }).passthrough().optional(),
+  style: z.object({
+    stroke: z.string().optional(),
+    strokeWidth: z.union([z.number(), z.string()]).optional(),
+    strokeDasharray: z.string().optional(),
+  }).passthrough().optional(),
+  data: z.object({
+    waypoints: z.array(pointSchema).optional(),
+    connectionKind: z.enum(["request", "data", "event"]).optional(),
+  }).passthrough().optional(),
 }).passthrough();
 
 export const graphSchema = z.object({

@@ -1,6 +1,6 @@
 # AI Engineering Canvas - Phase Plan
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Overall status: Phase 1A guest-canvas implementation started; account sync and later phases not started.
 
 ## Tracking rules
@@ -49,9 +49,9 @@ Goal: A guest can build a basic service flow and reopen it from the same browser
 Scope:
 
 - Build a responsive technical canvas with a starter example and engineering component palette.
-- Add/move/connect/select/edit/delete components; support full-containment marquee selection, group dragging, copy/paste of selected components and internal arrows, and keyboard undo/redo for supported graph actions.
+- Add/move/connect/select/edit/delete components and connections; support full-containment marquee selection, group dragging, copy/paste, keyboard undo/redo, inline edge-label editing, and editable connection presentation.
 - Customize canvas background and component colors; save appearance with the diagram.
-- Save/reopen multiple diagrams in IndexedDB, autosave, and export a JSON backup.
+- Save/reopen multiple diagrams in IndexedDB, autosave, and import/export JSON backups.
 - Validate saved graph structure and edge endpoints through the shared Zod schema.
 - Document setup and clearly explain browser/device-scoped guest data.
 
@@ -66,9 +66,10 @@ Acceptance criteria:
 - The canvas is the primary workspace; left and right panels can be closed independently and reopened from canvas controls.
 - A guest can rename a component by double-clicking it; selecting a component does not automatically open its inspector.
 - A guest can select an arrow, add one or more bend points, and drag those points to route the arrow; bend points persist with the graph.
+- A guest can double-click an arrow label to edit it inline and explicitly open Connection details to edit its relationship category, line color, solid/dashed style, and animation; these edits are undoable and persist through save, export, and import.
 - A guest can expand the canvas to browser full screen, see the whole diagram, and exit with Escape.
 - Invalid graph mutations are rejected with understandable errors.
-- A JSON export provides a backup before account sync exists.
+- A JSON export provides a backup, and a valid backup can be previewed and imported as a new canvas without replacing existing canvases. Invalid files leave local diagrams unchanged.
 - A new contributor can run the app by following the documented setup steps.
 
 ### Phase 1B - Account persistence and sync
@@ -168,11 +169,15 @@ See the rationale and current official documentation references in `PROJECT_MEMO
 
 ## Current state and next step
 
-Initial Phase 1A app scaffold and guest-canvas UI code are in `apps/web`; dependencies are installed and `package-lock.json` is generated. The dev server starts and the home route returned HTTP 200. TypeScript type-checking passes. Vitest coverage exercises graph document validation and Dexie persistence; `npm test` runs the suite. The user completed a manual browser review of the guest canvas on 2026-10-03 and confirmed the seeded commerce diagram and canvas interactions work correctly. The workspace now prioritizes the canvas, panels close independently, and component labels are edited inline by double-click; those UI changes still require verification. No separate API service or Docker Compose configuration exists in this phase.
+Initial Phase 1A app scaffold and guest-canvas UI code are in `apps/web`; dependencies are installed and `package-lock.json` is generated. The dev server starts and the home route returned HTTP 200. TypeScript type-checking passes. Vitest coverage exercises graph document validation and Dexie persistence; `npm test` runs the suite. The user completed a manual browser review of the guest canvas on 2026-10-03 and confirmed the seeded commerce diagram and canvas interactions work correctly. The workspace prioritizes the canvas, panels close independently, and component labels are edited inline by double-click. On 2026-10-04 the user confirmed the recently added multi-selection, group movement, copy/paste, and undo interactions work as expected. The user confirmed JSON backup import works on 2026-10-04. Connection-label and style editing is newly implemented and awaits the separate testing agent. No separate API service or Docker Compose configuration exists in this phase.
 
-Next step: the separate testing agent should review `apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md` against multi-selection, group dragging, copy/paste, undo/redo, arrow bends, full-screen mode, panels, inline renaming, and persistence. The user asked the coding agent not to run checks. After results, choose the next Phase 1A item with the user. Candidate gaps are JSON backup import/recovery, edge label and style editing, overlap-free component placement, and verifying the production `next build`. Keep Phase 1B deferred until its import/conflict rules and provider choices are agreed.
+Next step: the separate testing agent should review `apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md` against connection-label/style editing, JSON backup import/recovery, multi-selection, group dragging, copy/paste, undo/redo, arrow bends, full-screen mode, panels, inline renaming, and persistence. The user asked the coding agent not to run checks. After results, choose the next Phase 1A item with the user. Remaining Phase 1A gaps include overlap-free component placement and the production `next build`. Keep Phase 1B deferred until its import/conflict rules and provider choices are agreed.
 
 ## Change log
+
+- 2026-10-04: User confirmed JSON backup import works. Added inline editing for arrow labels and an explicit Connection details panel for relationship category, line color, solid/dashed style, animation, and deletion. Persisted edge presentation/category in the graph schema and added QA scenarios. No checks were run per the user instruction.
+
+- 2026-10-04: User confirmed the recent multi-selection, group-drag, copy/paste, and undo canvas interactions work as expected. Implemented JSON backup recovery: validated preview and explicit import as a new local canvas, preserving existing canvases and flushing the current canvas before switching. Added import scenarios to the separate testing-agent checklist. No tests or builds were run by the coding agent.
 
 - 2026-10-02: Created `AGENTS.md`, `PROJECT_MEMORY.md`, and `PHASE_PLAN.md` after product-spec review. Recorded the accepted product direction, staged stack assessment, unresolved decisions, proposed phases, and requirement to keep these docs synchronized with code/design/feature changes.
 - 2026-10-02: Added the user's UX requirements for a polished customizable canvas, browser-local guest persistence, account-backed cross-device persistence, and a safe guest-to-account migration path. Updated Phase 1 candidates and feasibility decisions; implementation remains unstarted.
@@ -189,3 +194,7 @@ Next step: the separate testing agent should review `apps/web/docs/canvas-editin
 
 - 2026-10-03: Expanded Phase 1A canvas editing with full-containment marquee selection, multi-component group dragging, copy/paste of selected components and internal arrows (including bent routes), and Ctrl/Cmd+Z undo with redo shortcuts. Added `apps/web/docs/canvas-editing-testing-checklist.md` for the separate testing agent. No checks were run per the user's instruction. Next: separate testing agent reviews the checklist and reports results; then agree on the next Phase 1A task.
 - 2026-10-03: Corrected the canvas navigation fix after the user reported that multi-selection, copy/paste, group movement, and keyboard undo had stopped working. Removing `selectionOnDrag` had disabled marquee selection, because React Flow computes `_selectionOnDrag = selectionOnDrag && panOnDrag !== true` and therefore ignores `selectionOnDrag` unless `panOnDrag` is not the default `true`. Restored `selectionOnDrag` and `panOnDrag={[1, 2]}` so left-drag selects exactly as before, and kept `panOnScroll` as the actual fix for the reported two-finger/trackpad scroll problem. Panning is available through two-finger scroll, Space + drag (default `panActivationKeyCode`), and middle/right mouse drag. Updated the canvas hint, quick tip, and testing checklist so they describe the real gesture set. `selectionOnDrag` combined with `panOnDrag={[1, 2]}` had restricted drag panning to the middle and right mouse buttons, and the absent `panOnScroll` meant trackpad and two-finger scroll zoomed instead of panning. Left-drag and touch panning are restored, scroll panning is enabled, and marquee selection moved to Shift + drag through `selectionKeyCode`. Updated the on-canvas hint and quick tip plus the testing checklist. Type-checking initially failed on a pre-existing error from the uncommitted waypoint edge work: `DraggableEdge` destructured `labelX`/`labelY`, which the installed React Flow v12.8.4 does not declare on `EdgeProps` and does not pass to custom edge components. Removed the dead destructuring and used the path helper's label coordinates instead, matching how React Flow's own built-in edges behave, so runtime rendering is unchanged. TypeScript and ESLint now pass; the test suite was not run because the user previously delegated testing to a separate agent.
+
+- 2026-10-04: Fixed two reported Phase 1A edge presentation defects: custom-route labels now track the route midpoint as endpoints or bend points move, and dashed connections use a more visible dash pattern/line weight. Added both regression scenarios to the web app canvas editing testing checklist. No checks were run per the user's instruction; separate testing agent remains responsible for verification.
+
+- 2026-10-04: Fixed relationship category presentation in Phase 1A. Category changes now apply distinct visible presets (request blue solid, data green dashed, event orange dotted), and Custom restores neutral styling. Added category switching and override scenarios to the testing-agent checklist. No checks were run; testing remains assigned to the separate agent.

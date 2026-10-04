@@ -30,12 +30,12 @@ The repository has uncommitted changes. Inspect `git status --short --untracked-
 
 ## Next Recommended Task
 
-Testing agent: review `docs/canvas-ui-testing-checklist.md`, report results for the latest canvas changes, and keep Phase 1B deferred.
+Testing agent: review `docs/canvas-ui-testing-checklist.md` and `apps/web/docs/canvas-editing-testing-checklist.md` for import recovery and canvas interactions; report results and keep Phase 1B deferred.
 
 ## Important Context
 
 - Guest diagrams are stored in the current browser profile's IndexedDB database, `archly-guest-canvas`; they do not sync across devices.
-- JSON export is the only implemented backup path; import and cloud recovery are not implemented.
+- JSON export and validated import as a new local canvas are implemented; cloud recovery is not.
 - The graph is the canonical diagram representation. Validate it with the Zod schemas at persistence boundaries.
 - The connection palette offers HTTPS request, data flow, and event publish. Select a template, then click source and destination nodes. Dragging between handles remains supported.
 - There is no API, authentication, cloud persistence, AI, Redis, RabbitMQ, Socket.IO, or worker implementation. Sign-in is a placeholder.
@@ -63,4 +63,27 @@ Testing agent: review `docs/canvas-ui-testing-checklist.md`, report results for 
 
 ## Next Recommended Task
 
-Testing agent: review `apps/web/docs/canvas-editing-testing-checklist.md` and report results for multi-selection, group movement, clipboard duplication, undo/redo, and editing-field shortcut behavior. Keep Phase 1B deferred.
+Testing agent: review the JSON backup import/recovery scenarios and the recent canvas editing scenarios in `apps/web/docs/canvas-editing-testing-checklist.md`; report browser, viewport, outcomes, and issues. Keep Phase 1B deferred.
+
+## JSON backup import (2026-10-04)
+
+- Added validated JSON backup selection and a preview of title, file name, component count, and connection count.
+- Confirmation creates a new local canvas with a fresh ID; existing canvases are never replaced. The active canvas is flushed before switching.
+- Invalid JSON/schema files, non-JSON files, and backups over 10 MB are rejected before changing saved diagrams.
+- No checks were run by the coding agent. The separate testing agent should review the JSON import/recovery section in `apps/web/docs/canvas-editing-testing-checklist.md` along with the existing canvas scenarios.
+
+## Editable connection labels and styles (2026-10-04)
+
+- Double-click an edge label to edit it inline. The explicit Connection details panel edits relationship category, line color, solid/dashed line style, animation, label, and deletion.
+- Relationship category is stored in optional edge `data.connectionKind`; edge `style` and category are preserved by the graph schema and document exporter. Edge renderer remains `archly`.
+- Edge selection does not automatically open the details panel. The user confirmed backup import and prior canvas editing work; this edge editor is newly implemented.
+- No checks were run. Testing agent: review the Connection label and style editing section in `apps/web/docs/canvas-editing-testing-checklist.md`, including history and JSON round trips.
+
+
+## Edge presentation bug fixes (2026-10-04)
+
+The custom edge label now follows the midpoint of the persisted route when bend points or endpoints move. Dashed lines now use a wider-spaced pattern and increased minimum line weight for clear visual contrast. Please cover the two new regression items in pps/web/docs/canvas-editing-testing-checklist.md; no checks were run by the coding agent.
+
+## Relationship type presentation fix (2026-10-04)
+
+The Relationship selector now applies immediate visible presets: request is blue solid, data is green dashed, and event is orange dotted. Custom resets the connection to neutral solid styling. Review category changes, marker colors, manual style overrides, undo/redo, and JSON round trips in apps/web/docs/canvas-editing-testing-checklist.md. No checks were run.

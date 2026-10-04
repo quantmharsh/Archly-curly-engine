@@ -62,7 +62,7 @@ The guest experience needs structured local persistence without requiring login 
 
 ### Consequences
 
-Guest data is not cross-browser or cross-device, and browser data clearing/eviction can remove it. JSON export exists as a manual backup. The Dexie database currently uses schema version 1; no import or migration flow is implemented.
+Guest data is not cross-browser or cross-device, and browser data clearing/eviction can remove it. JSON export and validated import as a new local canvas provide manual backup and recovery. The Dexie database currently uses schema version 1; no account merge or schema migration flow is implemented.
 
 ## Decision: Validate a versioned graph as the canonical diagram
 
@@ -108,7 +108,7 @@ Handle dragging alone made it difficult to discover how to create arrows and did
 
 ### Consequences
 
-Palette-created edge labels and animation are preset. Existing edge metadata cannot be edited in an inspector, and custom relationship types remain future work.
+Palette-created labels and animation provide defaults. Edge labels and presentation can be edited after creation; custom relationship categories beyond request, data, and event remain future work.
 
 ## Decision: Defer Redis and RabbitMQ until there is a demonstrated need
 
@@ -158,3 +158,20 @@ Do not add these dependencies or start account sync until the Phase 1B decisions
 ## 2026-10-03: Canvas editing shortcuts and multi-selection
 
 Phase 1A editing uses React Flow's full-containment area selection. Moving selected nodes is a group operation. Clipboard duplication includes selected nodes and only edges whose source and target are both selected; edge waypoint coordinates move with the duplicate. Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y redo, and clipboard/history shortcuts are disabled while typing in editable fields. Automated/browser verification is assigned to a separate agent; see `apps/web/docs/canvas-editing-testing-checklist.md`.
+
+## 2026-10-04: Import JSON backups as new local canvases
+
+Archly JSON backups are validated with the canonical diagram schema and shown in a preview before confirmation. Import always creates a new local diagram with a fresh ID; it does not overwrite an existing canvas. The currently open graph is saved before switching. This behavior supports guest recovery and does not define the separate Phase 1B guest-to-account merge policy.
+
+## 2026-10-04: Keep connection metadata separate from its canvas renderer
+
+Edge relationship category is optional graph metadata (`data.connectionKind`); the React Flow edge `type` remains the rendering choice (`archly`). Users can rename labels inline and explicitly open Connection details to edit relationship category, line color, solid/dashed stroke, and animation. Persist these fields with the graph and preserve them through undo/redo and JSON backup round trips. Edge selection alone does not open the details panel.
+
+
+## 2026-10-04: Anchor labels to edited routes and clarify dashed styling
+
+For custom-routed edges, place the label using the midpoint of the current endpoint-and-waypoint route so it moves with route edits. Make dashed styling visually distinct with a wider pattern and minimum stroke weight. Separate testing-agent verification is pending.
+
+## 2026-10-04: Distinguish relationship categories on the canvas
+
+Render HTTPS request as blue solid, data flow as green dashed, and event publish as orange dotted. A relationship change applies its category preset immediately; Custom restores neutral solid styling. Explicit color and line-style controls remain available for manual overrides. Distinct patterns preserve a visual distinction beyond color alone.
