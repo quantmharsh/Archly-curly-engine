@@ -47,6 +47,10 @@ Use this checklist to review the Phase 1A canvas workspace, inline component ren
 - [ ] Delete a selected component with the keyboard and confirm connected edges are removed with it.
 - [ ] Change canvas color/grid settings and confirm the diagram still autosaves and reopens correctly.
 - [ ] Switch diagrams using the canvas library and confirm each diagram keeps its own labels, positions, viewport, and appearance.
+- [ ] Open a canvas other than the first one, edit it, close the tab, and reopen the app. Confirm the same canvas is restored with its graph, viewport, canvas color, and grid setting — not the seeded starter canvas.
+- [ ] Create a new canvas, close the tab, and reopen. Confirm the new canvas is restored. Repeat after switching to a different canvas and after importing a JSON backup; confirm each becomes the canvas reopened on return.
+- [ ] Clear site storage or remove the remembered canvas, then reopen. Confirm the app resumes the most recently edited canvas, and seeds the starter example only when no canvas is stored.
+- [ ] Edit the currently open canvas (add a component, rename it, move a node), then reload the page several times in a row. Confirm the edits survive every reload and the canvas is never reset to the default example. Repeat for a canvas other than the first one.
 
 ## Report back
 

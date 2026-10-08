@@ -176,6 +176,29 @@ For custom-routed edges, place the label using the midpoint of the current endpo
 
 Render HTTPS request as blue solid, data flow as green dashed, and event publish as orange dotted. A relationship change applies its category preset immediately; Custom restores neutral solid styling. Explicit color and line-style controls remain available for manual overrides. Distinct patterns preserve a visual distinction beyond color alone.
 
+## 2026-10-08: Connect components from all four sides, and model component variety as node data
+
+### Status
+
+Accepted
+
+### Decision
+
+Every engineering node exposes connection handles on the left, right, top, and bottom, and the canvas runs React Flow in loose connection mode so any side can start or finish a connection; the drag direction determines which node is the source. New component kinds (decision, worker, function) are additional values of the node's `kind` data field rather than new React Flow node types or new schema type literals.
+
+### Reason
+
+Horizontal-only handles forced every flow into a left-to-right shape and made vertical or top-down service flows impossible to draw. Separately, adding a new node type would have changed the canonical `type: "engineering"` literal in the graph schema and required a migration for every existing document.
+
+### Alternatives Considered
+
+- Keeping strict connection mode and adding a separate source handle and target handle on each side (eight handles per node). Strict mode's handle resolution would have allowed a connection that starts on a target handle and ends on another target handle to produce an edge whose source handle cannot be resolved, leaving an invisible edge in the saved graph.
+- A distinct React Flow node type per component shape, which would change the persisted schema's node `type` literal.
+
+### Consequences
+
+Connection sides are persisted as optional `sourceHandle`/`targetHandle` fields on edges; graph schema version remains 1 and older documents still validate. Because every handle is a source handle, React Flow's own fallback for an edge without a handle id would attach both ends to the right side, so the app normalises missing handles to right/left on load and on save instead of relying on handle order. Undirected "any to any" connection gestures mean a user can also create a self-referencing edge, which remains allowed. A future decision-box *shape* (rather than a kind of component card) would need its own node type and schema decision.
+
 ## 2026-10-04: Favor direct, keyboard-first canvas interactions
 
 Reduce steps and mouse travel for common canvas work. Provide a Ctrl/⌘ K command palette, right-click context menus (component/arrow/canvas), double-click quick-add at the pointer, 22px grid snapping, add-at-cursor placement, category-aware handle connections, reconnectable and click-to-connect arrows, Ctrl/Cmd multi-select, Arrow-key nudge, Ctrl/Cmd+D duplicate, and Shift+1 fit / Ctrl/⌘ +/- zoom. Keep the existing marquee-selection and panning gestures working; selection highlighting is not document state. These interactions are client-only and do not change the persisted graph schema beyond the already-added bend points and connection category.

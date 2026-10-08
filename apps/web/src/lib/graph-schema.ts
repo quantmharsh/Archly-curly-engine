@@ -6,7 +6,7 @@ const nodeDataSchema = z.object({
   label: z.string().min(1).max(80),
   description: z.string().max(280).default(""),
   color: z.string().regex(/^#[\da-fA-F]{6}$/).default("#ffffff"),
-  kind: z.enum(["service", "database", "api", "queue", "external"]),
+  kind: z.enum(["service", "database", "api", "queue", "external", "decision", "worker", "function"]),
 });
 
 export const graphNodeSchema = z.object({
@@ -22,6 +22,11 @@ export const graphEdgeSchema = z.object({
   target: z.string().min(1),
   label: z.string().max(100).optional(),
   type: z.string().optional(),
+  // Which side of each node the arrow attaches to (right/left/top/bottom).
+  // Optional so diagrams saved before four-way handles still validate; the app
+  // resolves missing values to the horizontal defaults on load.
+  sourceHandle: z.string().nullish(),
+  targetHandle: z.string().nullish(),
   animated: z.boolean().optional(),
   markerEnd: z.object({ type: z.string(), color: z.string().optional() }).optional(),
   style: z.object({

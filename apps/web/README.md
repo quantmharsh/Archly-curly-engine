@@ -6,9 +6,9 @@ Phase 1A guest canvas for the AI Engineering Canvas project.
 
 ```powershell
 cd apps/web
-npm install
+npm install 
 npm run dev
-```
+```   
 
 The guest canvas saves diagrams in this browser's IndexedDB. Guest data is not synced across browsers or devices. Use **Export** to download a JSON backup. Account sign-in and cloud sync are planned for Phase 1B.
 

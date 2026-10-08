@@ -25,3 +25,24 @@ export async function readLocalDiagram(id: string) {
   const stored = await localDb.diagrams.get(id);
   return stored ? diagramDocumentSchema.parse(stored) : undefined;
 }
+
+// Which canvas was last open is a small UI pointer, not part of a diagram
+// document, so it lives in localStorage next to the IndexedDB database rather
+// than inside the versioned graph schema.
+const LAST_OPEN_DIAGRAM_KEY = "archly-guest-canvas:last-open-diagram";
+
+export function readLastOpenDiagramId() {
+  try {
+    return window.localStorage.getItem(LAST_OPEN_DIAGRAM_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveLastOpenDiagramId(id: string) {
+  try {
+    window.localStorage.setItem(LAST_OPEN_DIAGRAM_KEY, id);
+  } catch {
+    // Storage can be blocked or full; resuming the last canvas is best-effort.
+  }
+}

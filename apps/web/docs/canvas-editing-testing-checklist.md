@@ -64,6 +64,19 @@ Testing is assigned to the separate testing agent. The coding agent did not run 
 
 Report viewport/browser, steps, expected and actual outcomes, and console errors. Attach screenshots for visual issues.
 
+## Four-way connections and component kinds
+
+- [ ] Hover a component and confirm handles appear on all four sides (left, right, top, bottom).
+- [ ] Drag from an upper component's bottom handle to a lower component's top handle. Confirm the arrow runs top-to-bottom with the arrowhead at the lower component.
+- [ ] Drag from a lower component's top handle to an upper component's bottom handle. Confirm the arrow runs bottom-to-top and the arrowhead is at the upper component.
+- [ ] Drag from a left or right handle in both directions (out of a node and into a node) and confirm the drag direction determines which component is the source.
+- [ ] Confirm a vertically connected arrow keeps its top/bottom routing after autosave and reload, after switching canvases and back, and after export → import.
+- [ ] Open a diagram saved before four-way handles (or the seeded commerce diagram) and confirm every arrow still attaches right-to-left exactly as before.
+- [ ] Select a vertically routed arrow and confirm bend points, label editing, and the Connection details panel still work.
+- [ ] Add each new component kind (Decision, Worker, Function) from the palette, the right-click menu, and the command palette. Confirm the icon, tint, and minimap colour differ from the existing kinds.
+- [ ] Confirm the palette count badge matches the number of component cards listed.
+- [ ] Confirm the components panel still scrolls and the connection templates remain reachable with the longer component list.
+
 ## Direct-use interactions (canvas speed pass)
 
 - [ ] Press Ctrl/⌘ K (or click the ⌘ K button in the right panel footer). Confirm the command palette opens, filters as you type, and runs add-component, canvas, edit, and view commands; confirm Escape and Enter behave as expected.

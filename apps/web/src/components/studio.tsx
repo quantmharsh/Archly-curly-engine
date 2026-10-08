@@ -5,6 +5,7 @@ import {
   Background,
   BackgroundVariant,
   BaseEdge,
+  ConnectionMode,
   Controls,
   EdgeLabelRenderer,
   Handle,
@@ -27,10 +28,10 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { listLocalDiagrams, readLocalDiagram, saveLocalDiagram } from "@/lib/local-db";
+import { listLocalDiagrams, readLastOpenDiagramId, readLocalDiagram, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
 import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema";
 
-type Kind = "service" | "database" | "api" | "queue" | "external";
+type Kind = "service" | "database" | "api" | "queue" | "external" | "decision" | "worker" | "function";
 type ConnectionKind = "request" | "data" | "event";
 type NodeData = { label: string; description: string; color: string; kind: Kind };
 type FlowNode = Node<NodeData, "engineering">;
@@ -42,13 +43,24 @@ const EdgeEditorContext = createContext<{
   selectEdge: (id: string) => void;
 }>({ updateEdge: () => undefined, selectEdge: () => undefined });
 
-const kindMeta: Record<Kind, { label: string; icon: string; className: string }> = {
-  service: { label: "Service", icon: "◈", className: "kind-service" },
-  database: { label: "Database", icon: "▤", className: "kind-database" },
-  api: { label: "API", icon: "↗", className: "kind-api" },
-  queue: { label: "Queue", icon: "⇢", className: "kind-queue" },
-  external: { label: "External", icon: "◎", className: "kind-external" },
+const kindMeta: Record<Kind, { label: string; icon: string; className: string; hint: string; mapColor: string }> = {
+  service: { label: "Service", icon: "◈", className: "kind-service", hint: "Business logic", mapColor: "#8094d3" },
+  database: { label: "Database", icon: "▤", className: "kind-database", hint: "Persistent storage", mapColor: "#72a797" },
+  api: { label: "API", icon: "↗", className: "kind-api", hint: "App or endpoint", mapColor: "#638bb0" },
+  queue: { label: "Queue", icon: "⇢", className: "kind-queue", hint: "Async messaging", mapColor: "#c18b49" },
+  external: { label: "External", icon: "◎", className: "kind-external", hint: "Third-party system", mapColor: "#9169ab" },
+  decision: { label: "Decision", icon: "◆", className: "kind-decision", hint: "Branch or condition", mapColor: "#b5626f" },
+  worker: { label: "Worker", icon: "⟳", className: "kind-worker", hint: "Background processing", mapColor: "#6b7789" },
+  function: { label: "Function", icon: "λ", className: "kind-function", hint: "Serverless compute", mapColor: "#97893f" },
 };
+
+// Connection handles exist on all four sides so a flow can run left/right or
+// up/down. All four are source handles: React Flow's loose connection mode lets
+// any handle start or finish a connection, and the drag direction decides which
+// node is the source. These two are the horizontal defaults that older edges
+// without handle ids are resolved to (see activateDocument / makeDocument).
+const HANDLE_RIGHT = "right";
+const HANDLE_LEFT = "left";
 
 const connectionMeta: Record<ConnectionKind, { label: string; hint: string; animated: boolean; className: string }> = {
   request: { label: "HTTPS request", hint: "HTTP / API call", animated: true, className: "connection-request" },
@@ -117,7 +129,15 @@ function EngineeringNode({ id, data, selected }: NodeProps<FlowNode>) {
       event.preventDefault();
       startEditing();
     }}>
-      <Handle type="target" position={Position.Left} />
+      {/* Right is declared first so an edge that somehow reaches the canvas
+          without a handle id still leaves from the horizontal side. Edges from
+          older documents are normalised to right/left in activateDocument,
+          because with every handle being a source the library's own fallback
+          would otherwise pick the right side for both ends. */}
+      <Handle type="source" id={HANDLE_RIGHT} position={Position.Right} />
+      <Handle type="source" id="top" position={Position.Top} />
+      <Handle type="source" id="bottom" position={Position.Bottom} />
+      <Handle type="source" id={HANDLE_LEFT} position={Position.Left} />
       <div className="node-glyph">{meta.icon}</div>
       <div className="node-copy">
         <span className="node-kind">{meta.label}</span>
@@ -338,10 +358,12 @@ function makeDocument(id: string, title: string, nodes: FlowNode[], edges: FlowE
     graph: {
       schemaVersion: 1,
       nodes: nodes.map(({ id: nodeId, position, data }) => ({ id: nodeId, type: "engineering" as const, position, data })),
-      edges: edges.map(({ id: edgeId, source, target, label, type, animated, markerEnd, style, data }) => ({
+      edges: edges.map(({ id: edgeId, source, target, sourceHandle, targetHandle, label, type, animated, markerEnd, style, data }) => ({
         id: edgeId,
         source,
         target,
+        sourceHandle: sourceHandle ?? HANDLE_RIGHT,
+        targetHandle: targetHandle ?? HANDLE_LEFT,
         label: typeof label === "string" ? label : undefined,
         type,
         animated,
@@ -367,8 +389,11 @@ function StudioContent() {
   const { screenToFlowPosition, fitView, fitBounds, getNodesBounds, setViewport: setFlowViewport, getViewport, zoomIn, zoomOut } = useReactFlow<FlowNode, FlowEdge>();
   const [diagramId, setDiagramId] = useState("starter-flow");
   const [title, setTitle] = useState("Commerce service flow");
-  const [nodes, setNodes] = useNodesState<FlowNode>(seedNodes);
-  const [edges, setEdges] = useEdgesState<FlowEdge>(seedEdges);
+  // Start empty rather than with the seeded starter graph: the stored canvas is
+  // read from IndexedDB after mount, and painting the starter first would flash
+  // the wrong diagram for a returning visitor.
+  const [nodes, setNodes] = useNodesState<FlowNode>([]);
+  const [edges, setEdges] = useEdgesState<FlowEdge>([]);
   const [canvasColor, setCanvasColor] = useState("#f6f7fb");
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -643,26 +668,55 @@ function StudioContent() {
     setDiagrams(await listLocalDiagrams());
   }, []);
 
+  // Makes a stored document the open canvas and remembers it, so returning to
+  // the app resumes on the same diagram instead of the seeded starter. Edges
+  // saved before four-way handles have no handle ids; they resolve to the
+  // horizontal defaults so existing diagrams keep their routing.
+  const activateDocument = useCallback((document: DiagramDocument) => {
+    setDiagramId(document.id);
+    setTitle(document.title);
+    setNodes(document.graph.nodes as FlowNode[]);
+    setEdges(document.graph.edges.map((edge) => ({
+      ...edge,
+      type: "archly",
+      sourceHandle: edge.sourceHandle ?? HANDLE_RIGHT,
+      targetHandle: edge.targetHandle ?? HANDLE_LEFT,
+    })) as FlowEdge[]);
+    setCanvasColor(document.graph.canvasColor);
+    setViewport(document.graph.viewport);
+    setShowGrid(document.graph.showGrid);
+    pastRef.current = [];
+    futureRef.current = [];
+    setHistoryStatus({ canUndo: false, canRedo: false });
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    saveLastOpenDiagramId(document.id);
+  }, [setEdges, setNodes]);
+
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const existing = await readLocalDiagram("starter-flow");
-        if (existing && active) {
-          setTitle(existing.title);
-          setNodes(existing.graph.nodes as FlowNode[]);
-          setEdges(existing.graph.edges.map((edge) => ({ ...edge, type: "archly" })) as FlowEdge[]);
-          setCanvasColor(existing.graph.canvasColor);
-          setViewport(existing.graph.viewport);
-          setShowGrid(existing.graph.showGrid);
-        } else {
-          const starter = makeDocument("starter-flow", "Commerce service flow", seedNodes, seedEdges, "#f6f7fb", { x: 0, y: 0, zoom: 1 }, true);
-          await saveLocalDiagram(starter);
+        // Resume the remembered canvas. When there is no pointer yet (first run
+        // after this change, cleared storage, or a stale id) fall back to the
+        // most recently edited canvas before seeding anything, so a returning
+        // visitor never lands on the seeded starter by accident.
+        const savedId = readLastOpenDiagramId();
+        const stored = await listLocalDiagrams();
+        const candidates = savedId ? [savedId, ...stored.map((diagram) => diagram.id)] : stored.map((diagram) => diagram.id);
+        let document: DiagramDocument | undefined;
+        for (const candidateId of candidates) {
+          document = await readLocalDiagram(candidateId).catch(() => undefined);
+          if (document) break;
         }
-        if (active) {
-          await refreshLibrary();
-          setLoaded(true);
+        if (!document) {
+          document = makeDocument("starter-flow", "Commerce service flow", seedNodes, seedEdges, "#f6f7fb", { x: 0, y: 0, zoom: 1 }, true);
+          await saveLocalDiagram(document);
         }
+        if (!active) return;
+        activateDocument(document);
+        await refreshLibrary();
+        if (active) setLoaded(true);
       } catch {
         if (active) {
           setSaveState("error");
@@ -671,7 +725,7 @@ function StudioContent() {
       }
     })();
     return () => { active = false; };
-  }, [refreshLibrary, setEdges, setNodes]);
+  }, [activateDocument, refreshLibrary]);
 
   useEffect(() => {
     const updateFullscreenState = () => {
@@ -804,6 +858,8 @@ function StudioContent() {
       id: `connection-${crypto.randomUUID()}`,
       source: connectionSourceId,
       target: node.id,
+      sourceHandle: HANDLE_RIGHT,
+      targetHandle: HANDLE_LEFT,
       label: template.label,
       type: "archly",
       animated: template.animated,
@@ -844,19 +900,9 @@ function StudioContent() {
 
   const createDiagram = async () => {
     const id = crypto.randomUUID();
-    const next = makeDocument(id, "Untitled flow", [], [], canvasColor, { x: 0, y: 0, zoom: 1 }, showGrid);
+    const next = makeDocument(id, "Untitled flow", [], [], canvasColor, { x: 0, y: 0, zoom: 1 }, true);
     await saveLocalDiagram(next);
-    setDiagramId(id);
-    setTitle(next.title);
-    setNodes([]);
-    setEdges([]);
-    setViewport({ x: 0, y: 0, zoom: 1 });
-    setShowGrid(true);
-    pastRef.current = [];
-    futureRef.current = [];
-    setHistoryStatus({ canUndo: false, canRedo: false });
-    setSelectedNodeId(null);
-    setSelectedEdgeId(null);
+    activateDocument(next);
     setShowLibrary(false);
     await refreshLibrary();
     setToast("New local canvas created");
@@ -865,18 +911,7 @@ function StudioContent() {
   const openDiagram = async (id: string) => {
     const document = await readLocalDiagram(id);
     if (!document) return;
-    setDiagramId(document.id);
-    setTitle(document.title);
-    setNodes(document.graph.nodes as FlowNode[]);
-    setEdges(document.graph.edges.map((edge) => ({ ...edge, type: "archly" })) as FlowEdge[]);
-    setCanvasColor(document.graph.canvasColor);
-    setViewport(document.graph.viewport);
-    setShowGrid(document.graph.showGrid);
-    pastRef.current = [];
-    futureRef.current = [];
-    setHistoryStatus({ canUndo: false, canRedo: false });
-    setSelectedNodeId(null);
-    setSelectedEdgeId(null);
+    activateDocument(document);
     setShowLibrary(false);
   };
 
@@ -942,18 +977,7 @@ function StudioContent() {
       await saveLocalDiagram(current);
       await saveLocalDiagram(imported);
 
-      setDiagramId(imported.id);
-      setTitle(imported.title);
-      setNodes(imported.graph.nodes as FlowNode[]);
-      setEdges(imported.graph.edges.map((edge) => ({ ...edge, type: "archly" })) as FlowEdge[]);
-      setCanvasColor(imported.graph.canvasColor);
-      setViewport(imported.graph.viewport);
-      setShowGrid(imported.graph.showGrid);
-      pastRef.current = [];
-      futureRef.current = [];
-      setHistoryStatus({ canUndo: false, canRedo: false });
-      setSelectedNodeId(null);
-      setSelectedEdgeId(null);
+      activateDocument(imported);
       setSaveState("saved");
       setImportDialogOpen(false);
       await refreshLibrary().catch(() => undefined);
@@ -1106,9 +1130,9 @@ function StudioContent() {
           <button className="sidebar-tab active"><span className="tab-icon">◈</span><span>Components</span></button>
           <button className="sidebar-tab" onClick={() => setShowLibrary((open) => !open)}><span className="tab-icon">▦</span><span>My canvases</span><span className="tab-count">{diagrams.length}</span></button>
           <div className="sidebar-rule" />
-          <div className="palette-heading"><div><span className="sidebar-label">COMPONENTS</span><span className="palette-hint">Drag onto canvas</span></div><span className="tiny-count">05</span></div>
+          <div className="palette-heading"><div><span className="sidebar-label">COMPONENTS</span><span className="palette-hint">Drag onto canvas</span></div><span className="tiny-count">{String(Object.keys(kindMeta).length).padStart(2, "0")}</span></div>
           <div className="component-list">
-            {(Object.keys(kindMeta) as Kind[]).map((kind) => <button key={kind} className="component-card" onClick={() => addNode(kind)} draggable onDragStart={(event) => event.dataTransfer.setData("application/archly-kind", kind)}><span className={`component-icon ${kindMeta[kind].className}`}>{kindMeta[kind].icon}</span><span className="component-copy"><strong>{kindMeta[kind].label}</strong><small>{kind === "service" ? "Business logic" : kind === "database" ? "Persistent storage" : kind === "api" ? "App or endpoint" : kind === "queue" ? "Async messaging" : "Third-party system"}</small></span><span className="add-hint">＋</span></button>)}
+            {(Object.keys(kindMeta) as Kind[]).map((kind) => <button key={kind} className="component-card" onClick={() => addNode(kind)} draggable onDragStart={(event) => event.dataTransfer.setData("application/archly-kind", kind)}><span className={`component-icon ${kindMeta[kind].className}`}>{kindMeta[kind].icon}</span><span className="component-copy"><strong>{kindMeta[kind].label}</strong><small>{kindMeta[kind].hint}</small></span><span className="add-hint">＋</span></button>)}
           </div>
           <div className="palette-heading connection-palette-heading"><div><span className="sidebar-label">CONNECTIONS</span><span className="palette-hint">Choose a line, then click two components</span></div></div>
           <div className="component-list connection-list">
@@ -1151,9 +1175,10 @@ function StudioContent() {
               <div className="context-eyebrow"><span className="context-dot" /> YOUR SYSTEM, MAPPED</div>
             <div className="context-caption">{connectionKind ? connectionSourceId ? "Now click the destination component." : `Choose a source for ${connectionMeta[connectionKind].label}.` : selectedEdge ? "Double-click its label to edit; open Connection details to change its style." : "Drag on empty canvas to select components · Double-click a component to edit its name."}</div>
             </div>
-            <div className="canvas-count"><span className="count-icon">◈</span>{nodeCount} components <span className="count-divider">·</span> {edges.length} connections</div>
+            {loaded && <div className="canvas-count"><span className="count-icon">◈</span>{nodeCount} components <span className="count-divider">·</span> {edges.length} connections</div>}
             {isFullscreen && <div className="fullscreen-exit-hint"><kbd>Esc</kbd> to exit full screen</div>}
-            {!nodeCount && <div className="empty-canvas"><div className="empty-orbit"><span>◈</span></div><h2>Start with a component</h2><p>Drag one from the components panel, or add a service to begin mapping your system.</p><button onClick={() => addNode("service")}>＋ Add your first component</button></div>}
+            {!loaded && <div className="canvas-loading">Opening your canvas…</div>}
+            {loaded && !nodeCount && <div className="empty-canvas"><div className="empty-orbit"><span>◈</span></div><h2>Start with a component</h2><p>Drag one from the components panel, or add a service to begin mapping your system.</p><button onClick={() => addNode("service")}>＋ Add your first component</button></div>}
             <HistoryContext.Provider value={recordHistory}>
             <EdgeEditorContext.Provider value={{ updateEdge, selectEdge }}>
             <ReactFlow
@@ -1229,6 +1254,7 @@ function StudioContent() {
               snapGrid={[GRID_STEP, GRID_STEP]}
               selectionOnDrag
               selectionMode={SelectionMode.Full}
+              connectionMode={ConnectionMode.Loose}
               panOnDrag={[1, 2]}
               panOnScroll
               edgesReconnectable
@@ -1239,7 +1265,7 @@ function StudioContent() {
             >
               {showGrid && <Background variant={BackgroundVariant.Dots} gap={22} size={1.1} color={canvasColor === "#1c2330" ? "#495363" : "#d8deea"} />}
               <Controls position="bottom-left" showInteractive={false} />
-              <MiniMap position="bottom-right" pannable zoomable nodeColor={(node) => (node.data as NodeData).kind === "database" ? "#72a797" : (node.data as NodeData).kind === "service" ? "#8094d3" : "#cf9b6b"} maskColor="rgba(250,251,253,.72)" />
+              <MiniMap position="bottom-right" pannable zoomable nodeColor={(node) => kindMeta[(node.data as NodeData).kind].mapColor} maskColor="rgba(250,251,253,.72)" />
             </ReactFlow>
             </EdgeEditorContext.Provider>
             </HistoryContext.Provider>

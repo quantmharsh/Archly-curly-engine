@@ -2,88 +2,67 @@
 
 ## Handoff Date
 
-2026-10-03
+2026-10-05
+
+## Previous Agent
+
+Codex
 
 ## Current Phase
 
-Phase 1A: guest canvas (in progress). Phase 1B has not started.
+Phase 1A: guest canvas, in progress. Phase 1B has not started.
 
-## Completed In This Session
+## What Was Done In This Session
 
-- Expanded the React Flow canvas as the main workspace and added independent build/settings panel toggles. The right panel starts closed.
-- Changed component selection so it no longer opens the inspector automatically; added an explicit Component details toolbar action.
-- Added inline component name editing by double-clicking anywhere on a component, with Enter/blur to save and Escape to cancel.
-- Added selectable arrows with addable, draggable bend points that persist in optional edge data; existing saved edges load through the new custom edge renderer.
-- Added browser fullscreen for the canvas, fits the graph on entry, and exits through Escape.
-- Updated canvas guidance, `PROJECT_MEMORY.md`, `PHASE_PLAN.md`, `docs/decisions.md`, and `docs/current-status.md`.
+- Inspected repository guidance, available project docs, source structure, schemas, persistence layer, app entry points, QA checklists, package scripts, Git state, and recent commits.
+- Reconciled this handoff, `docs/current-status.md`, and the Phase 1A next-step note in `PHASE_PLAN.md` against the current source. No application code or architectural decisions changed.
+- No feature implementation was performed.
 
-## Verification
+## What Was Verified
 
-- Testing was not run in this handoff, per the user's instruction that another agent will test.
-- Review `docs/canvas-ui-testing-checklist.md` for panel, inline editing, route shaping/persistence, fullscreen/escape, and regression checks.
-- The prior coding session recorded TypeScript and the existing six tests passing, before these arrow and fullscreen changes.
-- There are no application route handlers, Docker/Compose files, or account/cloud services in the current phase.
+- `git -c safe.directory=C:/Users/virat/OneDrive/projects/Archly status --short --untracked-files=all` — clean at inspection. Recent `main` HEAD is `cb1a5da` (`feat: enhance canvas interactions with command palette and context menus`); prior commits include edge editing/import and waypoint support.
+- `node node_modules/typescript/bin/tsc --noEmit` from `apps/web` — PASS (exit 0).
+- `npm run lint` — started, then interrupted before a result was established; no pass is claimed.
+- `npm test` — failed before Vitest launched with Node `EPERM` resolving `C:\Users\virat`. The user has since instructed that no tests be run until they say otherwise.
+- `npm run build` — failed before Next.js launched with the same Node `EPERM` path-resolution error.
+- No browser interaction, app-start check, Docker check, or successful production build was performed.
 
 ## Current Working State
 
-The repository has uncommitted changes. Inspect `git status --short --untracked-files=all` before staging or committing. The test suite is in `apps/web/src/lib`.
+The working tree was clean when inspected; this assessment changed only `docs/current-status.md`, `docs/agent-handoff.md`, and `PHASE_PLAN.md`. The repository contains one Next.js client canvas app in `apps/web`, Zod graph/document validation, and Dexie/IndexedDB guest persistence. `docs/decisions.md` was left unchanged because no new architectural/product decision was made. Project decisions remain in `PROJECT_MEMORY.md` and `docs/decisions.md`.
 
 ## Next Recommended Task
 
-Testing agent: review `docs/canvas-ui-testing-checklist.md` and `apps/web/docs/canvas-editing-testing-checklist.md` for import recovery and canvas interactions; report results and keep Phase 1B deferred.
+Have the user/testing agent review the Phase 1A interaction QA checklists (`apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md`), especially the recent connection editor, import/recovery, and direct-use interactions, and report concrete browser outcomes. Do not run automated tests until the user authorizes it. After QA, agree with the user on remaining Phase 1A acceptance gaps before considering Phase 1B.
 
-## Important Context
+## Important Context For Next Agent
 
-- Guest diagrams are stored in the current browser profile's IndexedDB database, `archly-guest-canvas`; they do not sync across devices.
-- JSON export and validated import as a new local canvas are implemented; cloud recovery is not.
-- The graph is the canonical diagram representation. Validate it with the Zod schemas at persistence boundaries.
-- The connection palette offers HTTPS request, data flow, and event publish. Select a template, then click source and destination nodes. Dragging between handles remains supported.
-- There is no API, authentication, cloud persistence, AI, Redis, RabbitMQ, Socket.IO, or worker implementation. Sign-in is a placeholder.
-- Read `AGENTS.md`, `PROJECT_MEMORY.md`, `PHASE_PLAN.md`, and `docs/decisions.md` before implementation. Keep phase documentation synchronized with code.
+- Guest diagrams live only in the current browser profile's IndexedDB database `archly-guest-canvas`; this is not cloud or cross-device sync.
+- JSON import validates and creates a new diagram with a new ID; it does not replace an existing diagram.
+- The graph is canonical structured data, schema version 1. Edge render type (`archly`) is separate from optional semantic category metadata.
+- Connection categories have default visual presets, with manual edge style controls in the UI.
+- The sign-in control is a placeholder. PostgreSQL/Drizzle/auth remain Phase 1B proposals in `docs/decisions.md` and `PHASE_PLAN.md`.
+- Do not run tests unless the user authorizes them; the prior test invocation could not get as far as Vitest due to sandbox path resolution.
+
+## Files To Inspect First
+
+- `AGENTS.md`, `PROJECT_MEMORY.md`, `PHASE_PLAN.md`
+- `docs/current-status.md`, `docs/decisions.md`, both canvas testing checklists
+- `apps/web/package.json`
+- `apps/web/src/components/studio.tsx`
+- `apps/web/src/lib/graph-schema.ts`, `apps/web/src/lib/local-db.ts`
+- `apps/web/src/app/page.tsx`, `apps/web/src/app/globals.css`
 
 ## Known Problems
 
-- Automated coverage currently includes graph validation and local diagram persistence; the updated canvas UI has not been browser-tested.
-- Browser-storage recovery/import is not implemented; local data may be lost if browser storage is cleared or evicted.
-- Edge label/style editing and complete undo coverage are missing.
-- Node placement uses a small repeating grid and may overlap as more components are added.
+- Latest canvas interaction changes have not been validated in an interactive browser as part of this assessment.
+- Automated tests only cover schema validation and Dexie persistence; tests were not completed here, and user has paused test execution.
+- TypeScript passes, but lint result is unknown and production build/runtime have not been validated.
+- Undo/redo is in-memory and partial; no durable version history exists.
+- IndexedDB storage is vulnerable to browser profile removal/eviction; JSON backup is manual recovery.
 
 ## Do Not Do
 
-- Do not start Phase 1B or add authentication/cloud sync before guest import/merge, conflict, and provider decisions are reviewed.
-- Do not add Redis, RabbitMQ, Socket.IO, AI, code import, voice, or workers to Phase 1A without an explicit scope discussion.
-- Do not treat IndexedDB guest storage as cross-browser/device persistence or as the only safe copy of user work.
-
-## Latest canvas editing change (2026-10-03)
-
-- Added empty-canvas marquee selection for fully enclosed components and group dragging.
-- Added copy/paste for selected components, internal arrows, and persisted arrow bends.
-- Added keyboard undo/redo and expanded the separate QA checklist at `apps/web/docs/canvas-editing-testing-checklist.md`.
-- No tests, type checks, lint, builds, or browser checks were run per the user's instruction.
-
-## Next Recommended Task
-
-Testing agent: review the JSON backup import/recovery scenarios and the recent canvas editing scenarios in `apps/web/docs/canvas-editing-testing-checklist.md`; report browser, viewport, outcomes, and issues. Keep Phase 1B deferred.
-
-## JSON backup import (2026-10-04)
-
-- Added validated JSON backup selection and a preview of title, file name, component count, and connection count.
-- Confirmation creates a new local canvas with a fresh ID; existing canvases are never replaced. The active canvas is flushed before switching.
-- Invalid JSON/schema files, non-JSON files, and backups over 10 MB are rejected before changing saved diagrams.
-- No checks were run by the coding agent. The separate testing agent should review the JSON import/recovery section in `apps/web/docs/canvas-editing-testing-checklist.md` along with the existing canvas scenarios.
-
-## Editable connection labels and styles (2026-10-04)
-
-- Double-click an edge label to edit it inline. The explicit Connection details panel edits relationship category, line color, solid/dashed line style, animation, label, and deletion.
-- Relationship category is stored in optional edge `data.connectionKind`; edge `style` and category are preserved by the graph schema and document exporter. Edge renderer remains `archly`.
-- Edge selection does not automatically open the details panel. The user confirmed backup import and prior canvas editing work; this edge editor is newly implemented.
-- No checks were run. Testing agent: review the Connection label and style editing section in `apps/web/docs/canvas-editing-testing-checklist.md`, including history and JSON round trips.
-
-
-## Edge presentation bug fixes (2026-10-04)
-
-The custom edge label now follows the midpoint of the persisted route when bend points or endpoints move. Dashed lines now use a wider-spaced pattern and increased minimum line weight for clear visual contrast. Please cover the two new regression items in pps/web/docs/canvas-editing-testing-checklist.md; no checks were run by the coding agent.
-
-## Relationship type presentation fix (2026-10-04)
-
-The Relationship selector now applies immediate visible presets: request is blue solid, data is green dashed, and event is orange dotted. Custom resets the connection to neutral solid styling. Review category changes, marker colors, manual style overrides, undo/redo, and JSON round trips in apps/web/docs/canvas-editing-testing-checklist.md. No checks were run.
+- Do not start Phase 1B or add accounts/cloud sync before guest migration, conflict, and provider decisions are reviewed.
+- Do not add Redis, RabbitMQ, realtime, AI, code import, voice, presentation, or workers to Phase 1A without an explicit scope discussion.
+- Do not claim UI interactions, build, lint, or tests passed unless verified; do not run tests until the user gives permission.

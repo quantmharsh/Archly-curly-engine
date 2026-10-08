@@ -1,6 +1,6 @@
 ﻿# AI Engineering Canvas - Project Memory
 
-Last reviewed: 2026-10-03
+Last reviewed: 2026-10-08
 Status: Phase 1A guest-canvas implementation started; account sync remains Phase 1B.
 
 ## How to use this file
@@ -178,3 +178,13 @@ Connection categories have distinct defaults: HTTPS request is blue and solid, d
 ## Canvas direct-use interactions (2026-10-04)
 
 The canvas favors low-friction, keyboard-first editing and keeps the surface primary. Ctrl/⌘ K opens a command palette (adding components, opening/creating/importing/exporting canvases, undo/redo, copy/paste/duplicate/delete, fit/zoom, panel/grid/fullscreen toggles); the ⌘ K button in the right-panel footer opens it too. Right-clicking a component, arrow, or empty canvas opens a context menu, and double-clicking empty canvas opens a quick-add menu at the pointer. New and moved components snap to a 22px grid, and palette adds land at the viewport center. Handle-drag connections inherit the active connection category; arrows are reconnectable by dragging an endpoint and connectable by clicking handles. Selection supports Ctrl/Cmd modifiers, Arrow-key nudge (Shift for larger steps), and Ctrl/Cmd+D duplicate; undo covers component name/description/color. These gestures build on and must not regress the established marquee selection (left-drag), panning (two-finger/scroll, Space + drag, middle/right drag), copy/paste, and in-memory undo/redo. Verification of these interactions is delegated to the separate testing agent.
+
+## Four-way connections and component kinds (2026-10-08)
+
+Engineering nodes carry connection handles on all four sides (left, right, top, bottom) so flows can be drawn horizontally or vertically, including top-to-bottom and bottom-to-top. All handles are source handles and the canvas uses React Flow's loose connection mode: any side can start or finish a connection, and the drag direction decides which node is the source. The sides an arrow attaches to are persisted per edge as optional `sourceHandle`/`targetHandle` fields on the canonical graph schema (still version 1). Edges saved before this change have no handle ids, and because every handle is a source handle, React Flow's own fallback would attach both ends to the right side; the app therefore normalises missing handles to right/left when a document is loaded (`activateDocument`) and when one is written (`makeDocument`), which is what keeps existing diagrams routed horizontally. Component variety (service, database, api, queue, external, decision, worker, function) is expressed as the node's `kind` data field, never as a new React Flow node type or schema `type` literal; a new kind therefore needs no migration, while a new node *shape* would.
+
+## Last-open canvas restore (2026-10-08)
+
+A returning guest resumes on the canvas they were last editing instead of the seeded starter diagram. The active canvas id is a browser-local UI pointer kept in `localStorage` (`archly-guest-canvas:last-open-diagram`, helpers in `apps/web/src/lib/local-db.ts`) rather than in the versioned graph schema or the exported document, so backups and imports never carry it. Opening, creating, or importing a canvas updates the pointer. Startup resolution order is: remembered canvas → most recently updated readable canvas → a freshly seeded starter. The starter example is written only when no readable canvas exists; it must never be written over an existing canvas. Clearing site storage therefore resets the app to the seeded starter without losing the ability to list remaining local canvases.
+
+The original startup path violated that rule. It re-saved the seed document over the open canvas whenever the startup read resolved after the effect had been cleaned up, which happens on every development-mode mount because React StrictMode mounts, cleans up, and remounts effects while the async read is still pending. The result was that the starter canvas silently reverted to the default example on every dev page load, discarding the user's edits to it. Any future load or seed logic must keep user documents immutable unless the user's own action changes them.
