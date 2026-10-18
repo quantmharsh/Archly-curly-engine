@@ -1,7 +1,7 @@
-﻿# AI Engineering Canvas - Project Memory
+# AI Engineering Canvas - Project Memory
 
 Last reviewed: 2026-10-08
-Status: Phase 1A guest-canvas implementation started; account sync remains Phase 1B.
+Status: Phase 1A guest canvas remains in progress; Phase 1B account/sync foundation started 2026-10-17.
 
 ## How to use this file
 
@@ -93,8 +93,8 @@ Keep Phase 1 as one TypeScript web application plus PostgreSQL; do not start wit
 - UI: React, TypeScript, `@xyflow/react`, Tailwind CSS, and Zustand when shared canvas state warrants it.
 - Shared graph validation: Zod; keep one canonical schema and validate data at storage/API boundaries.
 - Guest persistence: browser IndexedDB (a small wrapper such as Dexie is an implementation option); it is local to that browser profile/device, not cross-device sync.
-- Account persistence: PostgreSQL as the authoritative cloud store for projects, diagrams, versions, and users; Drizzle ORM/migrations is the current recommendation for the TypeScript/Postgres app.
-- Authentication: Better Auth is a candidate because its current docs support PostgreSQL and Drizzle; confirm the auth and deployment requirements before implementation. Never implement password/session handling by hand.
+- Account persistence: PostgreSQL is the account source of truth for users and diagrams; Drizzle ORM/migrations are selected. Durable diagram versions and checkpoint policy remain unresolved.
+- Authentication: Better Auth with email/password and optional Google (Gmail) and GitHub OAuth is selected for Phase 1B. Keep credential/session handling inside Better Auth; social provider secrets remain server-side. Email verification/reset delivery and hosting remain undecided.
 - Local development: Docker Compose for PostgreSQL only, if a local container is the chosen developer setup.
 - Quality: TypeScript strict mode, ESLint, Vitest for unit/integration tests, and Playwright for browser-level flows. Use Supertest only if a separate Express server is introduced.
 - Package manager/monorepo: choose at kickoff. Start as a single app unless a shared package is genuinely needed.
@@ -188,3 +188,10 @@ Engineering nodes carry connection handles on all four sides (left, right, top, 
 A returning guest resumes on the canvas they were last editing instead of the seeded starter diagram. The active canvas id is a browser-local UI pointer kept in `localStorage` (`archly-guest-canvas:last-open-diagram`, helpers in `apps/web/src/lib/local-db.ts`) rather than in the versioned graph schema or the exported document, so backups and imports never carry it. Opening, creating, or importing a canvas updates the pointer. Startup resolution order is: remembered canvas → most recently updated readable canvas → a freshly seeded starter. The starter example is written only when no readable canvas exists; it must never be written over an existing canvas. Clearing site storage therefore resets the app to the seeded starter without losing the ability to list remaining local canvases.
 
 The original startup path violated that rule. It re-saved the seed document over the open canvas whenever the startup read resolved after the effect had been cleaned up, which happens on every development-mode mount because React StrictMode mounts, cleans up, and remounts effects while the async read is still pending. The result was that the starter canvas silently reverted to the default example on every dev page load, discarding the user's edits to it. Any future load or seed logic must keep user documents immutable unless the user's own action changes them.
+
+
+## 2026-10-17 Phase 1B account and sync decisions
+
+The approved account foundation uses Better Auth email/password, PostgreSQL with Drizzle, and Next.js route handlers. Guest diagrams are offered for transfer after sign-in; transfer copies all guest canvases and retains their local originals. Signed-in diagrams are cached locally, offline edits queue for sync, and optimistic revision conflicts preserve both edits as separate diagrams for review. Hosting remains undecided. Email verification/reset delivery and durable version-history/checkpoint rules remain open. Current implementation is in progress and must not be represented as production-ready until database and browser verification and remaining Phase 1B criteria are complete.
+
+Social sign-in is scoped to optional Google (including Gmail accounts) and GitHub when their server-side credentials are configured. OAuth provider setup and interactive flows remain pending verification.

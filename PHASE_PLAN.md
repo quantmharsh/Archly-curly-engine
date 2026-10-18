@@ -1,7 +1,7 @@
 # AI Engineering Canvas - Phase Plan
 
-Last updated: 2026-10-08
-Overall status: Phase 1A guest-canvas implementation started; account sync and later phases not started.
+Last updated: 2026-10-18
+Overall status: Phase 1A guest-canvas work remains in progress; Phase 1B account and sync foundation is now in progress.
 
 ## Tracking rules
 
@@ -20,15 +20,15 @@ Status: In progress (Phase 1A is underway; remaining decisions apply to account 
 - [x] Choose a working first user and task: a software developer sketching a service flow.
 - [x] Split manual canvas delivery into guest canvas (Phase 1A) followed by account persistence/sync (Phase 1B).
 - [x] Confirm Phase 1A starts with guest/local persistence; Phase 1B account sync remains required before considering the manual-canvas foundation complete.
-- [ ] Define how guest diagrams are imported/merged after sign-in and how sync conflicts are handled.
+- [x] Define guest transfer and conflict behavior: copy guest canvases while retaining local originals; preserve concurrent edits as separate reviewable copies.
 - [x] Start with initial canvas color controls and readable engineering-node colors; refine accessibility/readability rules as UI work proceeds.
 - [x] Use one Next.js application for the guest slice; revisit a separate API only when a concrete requirement appears.
-- [ ] Confirm Drizzle (or another query layer) and Better Auth (or another auth provider) before Phase 1B.
+- [x] Select PostgreSQL with Drizzle and Better Auth email/password plus optional Google and GitHub OAuth for Phase 1B.
 - [x] Use npm with a single app under `apps/web` for Phase 1A; decide deployment target before publishing or starting account sync.
 - [x] Establish a first canonical graph schema and graph consistency validation for Phase 1A; review migration/version rules before Phase 1B.
 - [ ] Decide how user edits, autosave, undo/redo, and persisted versions interact.
 
-Phase 1A can proceed with the recorded working assumptions. Close the remaining items before starting Phase 1B account persistence.
+Phase 1B is in progress with the accepted foundation above. Hosting, email delivery, and durable version/checkpoint policy remain open. Do not mark the phase complete until database and browser verification and remaining acceptance criteria are met.
 
 ## Proposed implementation phases
 
@@ -82,9 +82,9 @@ Acceptance criteria:
 
 ### Phase 1B - Account persistence and sync
 
-Status: Not started
+Status: In progress
 
-- Add account authentication and PostgreSQL-backed projects, diagrams, and versions.
+- Add account authentication (email/password and optional Google/Gmail and GitHub OAuth) and PostgreSQL-backed projects, diagrams, and versions.
 - Sign in from guest mode and offer a safe import/merge flow without silently discarding local or account data.
 - Sync account diagrams across supported browsers/devices.
 - Define local cache/offline behavior, sync failure handling, conflict resolution, and guest-data retention/backup policy.
@@ -177,9 +177,9 @@ See the rationale and current official documentation references in `PROJECT_MEMO
 
 ## Current state and next step
 
-Phase 1A source is in `apps/web`; the current code includes the canvas, browser-local persistence, JSON backup import/export, connection editing, and direct-use interactions described in `docs/current-status.md`. The app now remembers the last open canvas in browser-local storage and restores it on return, falling back to the most recently updated canvas and only then to the seeded starter diagram. A pre-existing startup bug that overwrote an existing canvas with the default seed on every dev-mode page load was removed. TypeScript passed in the 2026-10-05 handoff assessment and again on 2026-10-08. Vitest coverage exists for graph validation and Dexie persistence, but tests, lint, and production build were not successfully verified in that assessment; the user has instructed the agent not to run tests until further notice. The user previously confirmed a manual canvas review on 2026-10-03 and multi-selection/group movement/copy-paste/undo and JSON import behavior on 2026-10-04. The latest edge editor, direct-use, and last-open-canvas restore changes still need focused browser QA. No separate API service or Docker Compose configuration exists in this phase.
+Phase 1A source is in `apps/web`; the current code includes the canvas, browser-local persistence, JSON backup import/export, connection editing, and direct-use interactions described in `docs/current-status.md`. The app now remembers the last open canvas in browser-local storage and restores it on return, falling back to the most recently updated canvas and only then to the seeded starter diagram. A pre-existing startup bug that overwrote an existing canvas with the default seed on every dev-mode page load was removed. TypeScript passed in the 2026-10-05 handoff assessment and again on 2026-10-08. Vitest coverage exists for graph validation and Dexie persistence, but tests, lint, and production build were not successfully verified in that assessment; the user has instructed the agent not to run tests until further notice. The user previously confirmed a manual canvas review on 2026-10-03 and multi-selection/group movement/copy-paste/undo and JSON import behavior on 2026-10-04. The latest edge editor, direct-use, and last-open-canvas restore changes still need focused browser QA. Next.js Route Handlers and Docker Compose for local PostgreSQL are now present in Phase 1B.
 
-Next step: have the user or designated testing agent review `apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md`, prioritizing connection label/style editing, JSON backup recovery, and the direct-use interactions. Do not run tests until the user authorizes them. After QA results, agree with the user on remaining Phase 1A acceptance gaps and the next implementation task. Keep Phase 1B deferred until its guest import/conflict rules and provider choices are agreed.
+Next step: manually verify sign-up/sign-in, session persistence, guest transfer, account diagrams, and offline/conflict behavior in the browser. The PostgreSQL migration is applied locally. The user must enter account credentials; do not run automated tests until explicitly authorized. Then resolve runtime issues and define durable diagram version-history policy.
 
 ## Change log
 
@@ -213,3 +213,14 @@ Next step: have the user or designated testing agent review `apps/web/docs/canva
 - 2026-10-04: Added a canvas direct-use/speed pass per the user's request that canvas use be fast and direct. Added the ⌘K/Ctrl+K command palette (previously advertised in the footer but not implemented), right-click context menus for components/arrows/canvas, double-click quick-add at the pointer, 22px grid snapping, add-at-cursor/viewport-center placement, category-aware handle connections, reconnectable arrows and click-to-connect, Ctrl/Cmd/Shift multi-select, Arrow-key nudge, Ctrl/Cmd+D duplicate, Shift+1 fit and Ctrl/⌘ +/- zoom, and undo coverage for component name/description/color. Enlarged connection handles and updated the on-canvas hints and quick tip. Also fixed pre-existing TypeScript errors in the uncommitted edge-inspector marker handling and relaxed the edge `style.strokeDasharray` schema to accept numbers. `npx tsc --noEmit` passes, ESLint reports 0 problems for the changed files, and the 6 existing Vitest tests still pass. Browser verification remains with the separate testing agent; new scenarios were added to `apps/web/docs/canvas-editing-testing-checklist.md`.
 
 - 2026-10-04: Fixed relationship category presentation in Phase 1A. Category changes now apply distinct visible presets (request blue solid, data green dashed, event orange dotted), and Custom restores neutral styling. Added category switching and override scenarios to the testing-agent checklist. No checks were run; testing remains assigned to the separate agent.
+
+
+## Change log
+
+### 2026-10-17 - Start Phase 1B account and sync foundation
+
+The user approved email/password authentication with Better Auth, PostgreSQL and Drizzle, guest-canvas transfer that retains local originals, offline local queuing, and preserving concurrent edits as separate reviewable copies. Initial implementation now includes auth routes and UI, account-scoped diagram APIs, revision checks, local cache/queue/transfer stores, and an initial migration. Phase 1B remains incomplete: apply the migration against a running PostgreSQL instance, complete browser QA, configure email verification/password reset, and decide durable version-history/checkpoint policy. Hosting remains undecided. Automated tests remain prohibited until explicitly authorized.
+
+- 2026-10-18: Local PostgreSQL setup now runs on host port 5433 to avoid the existing Windows PostgreSQL service on 5432. Node 24.20.0 installed; app-local ignored env config created without changing the root .env. Drizzle migration applied and five expected tables confirmed. HTTP page/session/protected-route checks and TypeScript passed; automated tests were not run. Interactive auth and sync browser QA remain pending.
+- 2026-10-18: Added optional Google, Apple, and GitHub sign-in to the Phase 1B account dialog and Better Auth configuration. Credentials are server-side environment variables; provider app registration and interactive OAuth verification remain pending. Apple requires an HTTPS callback and its client-secret JWT must be renewed. No automated tests were run.
+- 2026-10-18: Narrowed social sign-in scope to Google (including Gmail accounts) and GitHub per the user's direction. Removed Apple from the account dialog, Better Auth configuration, and setup docs. Provider credentials and interactive OAuth verification remain pending; automated tests were not run.

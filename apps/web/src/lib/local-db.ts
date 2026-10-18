@@ -3,12 +3,48 @@ import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema"
 
 class CanvasDatabase extends Dexie {
   diagrams!: EntityTable<DiagramDocument, "id">;
+  accountDiagrams!: EntityTable<AccountDiagramCache, "key">;
+  syncQueue!: EntityTable<PendingDiagramSync, "key">;
+  guestTransfers!: EntityTable<GuestTransferReceipt, "key">;
 
   constructor() {
     super("archly-guest-canvas");
     this.version(1).stores({ diagrams: "id, title, updatedAt" });
+    this.version(2).stores({
+      diagrams: "id, title, updatedAt",
+      accountDiagrams: "key, userId, diagramId, updatedAt",
+      syncQueue: "key, userId, diagramId, updatedAt",
+      guestTransfers: "key, userId, diagramId",
+    });
   }
 }
+
+export type AccountDiagramCache = {
+  key: string;
+  userId: string;
+  diagramId: string;
+  document: DiagramDocument;
+  revision: number;
+  updatedAt: number;
+  dirty: boolean;
+};
+
+export type PendingDiagramSync = {
+  key: string;
+  userId: string;
+  diagramId: string;
+  document: DiagramDocument;
+  expectedRevision: number;
+  updatedAt: number;
+};
+
+export type GuestTransferReceipt = {
+  key: string;
+  userId: string;
+  diagramId: string;
+  guestUpdatedAt: number;
+  accountDiagramId: string;
+};
 
 export const localDb = new CanvasDatabase();
 
@@ -24,6 +60,42 @@ export async function listLocalDiagrams() {
 export async function readLocalDiagram(id: string) {
   const stored = await localDb.diagrams.get(id);
   return stored ? diagramDocumentSchema.parse(stored) : undefined;
+}
+
+const accountDiagramKey = (userId: string, diagramId: string) => `${userId}:${diagramId}`;
+
+export async function listAccountDiagramCache(userId: string) {
+  return localDb.accountDiagrams.where("userId").equals(userId).sortBy("updatedAt");
+}
+
+export async function saveAccountDiagramCache(entry: Omit<AccountDiagramCache, "key">) {
+  const validated = diagramDocumentSchema.parse(entry.document);
+  await localDb.accountDiagrams.put({ ...entry, document: validated, key: accountDiagramKey(entry.userId, entry.diagramId) });
+}
+
+export async function getAccountDiagramCache(userId: string, diagramId: string) {
+  return localDb.accountDiagrams.get(accountDiagramKey(userId, diagramId));
+}
+
+export async function queueDiagramSync(entry: Omit<PendingDiagramSync, "key">) {
+  const validated = diagramDocumentSchema.parse(entry.document);
+  await localDb.syncQueue.put({ ...entry, document: validated, key: accountDiagramKey(entry.userId, entry.diagramId) });
+}
+
+export async function listQueuedDiagramSync(userId: string) {
+  return localDb.syncQueue.where("userId").equals(userId).sortBy("updatedAt");
+}
+
+export async function removeQueuedDiagramSync(userId: string, diagramId: string) {
+  await localDb.syncQueue.delete(accountDiagramKey(userId, diagramId));
+}
+
+export async function getGuestTransferReceipt(userId: string, diagramId: string) {
+  return localDb.guestTransfers.get(accountDiagramKey(userId, diagramId));
+}
+
+export async function saveGuestTransferReceipt(receipt: Omit<GuestTransferReceipt, "key">) {
+  await localDb.guestTransfers.put({ ...receipt, key: accountDiagramKey(receipt.userId, receipt.diagramId) });
 }
 
 // Which canvas was last open is a small UI pointer, not part of a diagram

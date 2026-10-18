@@ -132,19 +132,19 @@ The current application has no server-side cache, multi-instance coordination, o
 
 There are no cache, queue, or worker services in the repository. Reassess only when a concrete requirement and workload exist.
 
-## Decision: Treat PostgreSQL, Drizzle, and Better Auth as Phase 1B proposals
+## Decision: Use PostgreSQL, Drizzle, and Better Auth for the Phase 1B foundation
 
 ### Status
 
-Proposed
+Accepted
 
 ### Decision
 
-PostgreSQL with Drizzle and Better Auth are current candidates for account-backed persistence and authentication, but are not implementation commitments yet.
+Use PostgreSQL with Drizzle and Better Auth email/password for account-backed persistence and authentication, implemented within the Next.js app using route handlers.
 
 ### Reason
 
-Phase 1B needs durable account data and authentication, but guest-to-account import/merge, conflict rules, hosting, and exact provider choices remain unresolved.
+The user approved these provider choices and the sync policy. Hosting, email delivery for verification/reset, and durable diagram version/checkpoint policy remain unresolved.
 
 ### Alternatives Considered
 
@@ -202,3 +202,22 @@ Connection sides are persisted as optional `sourceHandle`/`targetHandle` fields 
 ## 2026-10-04: Favor direct, keyboard-first canvas interactions
 
 Reduce steps and mouse travel for common canvas work. Provide a Ctrl/⌘ K command palette, right-click context menus (component/arrow/canvas), double-click quick-add at the pointer, 22px grid snapping, add-at-cursor placement, category-aware handle connections, reconnectable and click-to-connect arrows, Ctrl/Cmd multi-select, Arrow-key nudge, Ctrl/Cmd+D duplicate, and Shift+1 fit / Ctrl/⌘ +/- zoom. Keep the existing marquee-selection and panning gestures working; selection highlighting is not document state. These interactions are client-only and do not change the persisted graph schema beyond the already-added bend points and connection category.
+
+
+## Decision: Phase 1B auth and guest-to-account sync foundation (2026-10-17)
+
+### Status
+
+Accepted
+
+### Decision
+
+Use Better Auth with email/password, PostgreSQL with Drizzle, and Next.js route handlers for the Phase 1B account foundation. Keep guest canvases in browser IndexedDB. After sign-in, offer to copy all guest canvases to the account while preserving local originals. Cache account canvases locally and queue offline edits. Use optimistic revisions; when a remote revision conflicts with local edits, preserve both as separately reviewable diagrams.
+
+### Consequences and open work
+
+This does not settle hosting, email delivery for verification/password reset, or durable version-history/checkpoint policy. The implementation is a starting foundation, not completed Phase 1B acceptance. Run no automated tests until the user explicitly authorizes them.
+
+### 2026-10-18: Focus social sign-in on Google and GitHub
+
+Better Auth supports optional Google (including Gmail accounts) and GitHub OAuth alongside email/password. Each provider is enabled only when both server-side credentials are present. Apple sign-in is deferred to avoid adding its provider-specific setup now. Provider registration, production secrets, and interactive OAuth verification remain setup/QA work.

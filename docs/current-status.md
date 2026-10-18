@@ -1,14 +1,14 @@
 # Archly Current Status
 
-Last inspected: 2026-10-08
+Last inspected: 2026-10-18
 
 ## Current Phase
 
-Phase 1A: guest canvas, in progress. Phase 1B account persistence and sync have not started.
+Phase 1A: guest canvas, in progress. Phase 1B: account and sync foundation in progress.
 
 ## Overall Progress
 
-`apps/web` is a single Next.js App Router application with a client-side React Flow canvas. Guest diagrams are stored in the current browser profile using Dexie/IndexedDB. The current committed source includes canvas editing, JSON export/import, undo/redo for selected operations, route waypoints, connection styling, and direct-use keyboard/context interactions. There is no server API, account system, or cloud persistence.
+`apps/web` is a single Next.js App Router application with a client-side React Flow canvas. Guest diagrams are stored in the current browser profile using Dexie/IndexedDB. The current committed source includes canvas editing, JSON export/import, undo/redo for selected operations, route waypoints, connection styling, and direct-use keyboard/context interactions. Phase 1B now adds Better Auth email/password sessions, PostgreSQL/Drizzle schema and migration, account-scoped diagram APIs, guest-to-account transfer, IndexedDB account cache and offline queue, and optimistic revision conflict copies.
 
 ## Completed
 
@@ -33,19 +33,19 @@ Phase 1A: guest canvas, in progress. Phase 1B account persistence and sync have 
 
 ## Not Implemented
 
-- Phase 1B authentication, PostgreSQL/account data, guest-to-account import/merge, conflict resolution, and cross-device sync.
+- Remaining Phase 1B work: manually verify sign-up/sign-in, guest transfer, cross-device and offline sync; configure email verification/password reset delivery; define durable version-history policy; choose hosting.
 - AI generation/editing/Q&A, source-code import, voice, presentation mode, collaboration, and durable version history.
 - Redis, RabbitMQ, workers, Socket.IO/realtime, a separate API service, and integration/E2E test suites.
 
 ## Current Architecture
 
 - **Frontend:** Next.js 16.3.8 App Router, React 19, TypeScript, `@xyflow/react`, Tailwind CSS 4; one app under `apps/web`.
-- **Backend:** No custom backend or route handlers. Next.js serves the app and static assets.
-- **Database:** Browser IndexedDB via Dexie for guest diagrams; no server database.
+- **Backend:** Next.js Route Handlers provide Better Auth and authenticated account diagram APIs.
+- **Database:** Dexie/IndexedDB stores guest diagrams, account cache, transfer receipts, and offline sync queue; PostgreSQL with Drizzle stores users, sessions, and account diagrams.
 - **Redis / RabbitMQ:** Not present.
 - **AI / workers:** Not present.
 - **Communication:** Client-side interactions; no WebSocket or realtime transport.
-- **Infrastructure:** npm app with dev/build/start scripts; no Dockerfile, Compose configuration, or configured deployment services.
+- **Infrastructure:** npm app with Drizzle migration scripts and Docker Compose for local PostgreSQL; hosting is undecided.
 
 ## Current Data Model
 
@@ -57,29 +57,43 @@ No application API endpoints or route handlers are present. The app page is `/` 
 
 ## Current Frontend
 
-The root page mounts `Studio`. It opens a seeded service diagram with component and relationship palettes, a local diagram library, expandable canvas, independently closable build/settings/details panels, and canvas toolbar. Selection, inline edits, import/export, appearance controls, full screen, context menus, command palette, and keyboard shortcuts are implemented in the client component. The sign-in control remains a Phase 1B placeholder.
+The root page mounts `Studio`. It opens a seeded service diagram with component and relationship palettes, a local diagram library, expandable canvas, independently closable build/settings/details panels, and canvas toolbar. Selection, inline edits, import/export, appearance controls, full screen, context menus, command palette, and keyboard shortcuts are implemented in the client component. Email/password sign-in and account diagram sync foundation are implemented for Phase 1B; database runtime and browser QA are pending.
 
 ## Current Tests and Verification
 
 - **Unit tests present:** two Vitest files for schema validation and local persistence. No integration or E2E tests found.
 - **Typecheck:** `node node_modules/typescript/bin/tsc --noEmit` — PASS on 2026-10-05 and 2026-10-08 (exit 0).
 - **Lint:** full-project `npm run lint` has no established result (the 2026-10-05 run was interrupted). ESLint run directly against the files changed on 2026-10-08 (`src/components/studio.tsx`, `src/lib/local-db.ts`) — PASS (exit 0); this is not a claim that the whole project lints clean.
-- **Tests:** Not completed. `npm test` failed before Vitest started with Node `EPERM` resolving `C:\Users\virat`; user has instructed not to run tests until further notice.
-- **Production build:** Not completed. `npm run build` failed before Next.js started with the same Node `EPERM` path-resolution error.
-- **Browser/runtime:** No browser session or app-start validation was performed in this assessment.
+- **Tests:** Not run this session, per the user instruction. Do not run automated tests until explicitly authorized.
+- **Production build:** Not run in this session.
+- **Runtime:** PostgreSQL container healthy; Drizzle migration applied and five expected tables confirmed. Local page returned HTTP 200, unauthenticated session returned HTTP 200 with null, protected diagrams endpoint returned HTTP 401. Interactive auth and sync remain unverified.
 
 ## Current Infrastructure
 
-No Dockerfile, Docker Compose services, server database, cache, queue, or worker configuration exists. `apps/web/package.json` contains `dev`, `build`, `start`, `test`, and `lint` scripts. The code and setup README do not require environment variables.
-
+- Docker Compose runs local PostgreSQL on host port 5433 (container port 5432) because another Windows PostgreSQL process occupies 5432.
+- The Drizzle migration has been applied. apps/web/.env.local contains local database/auth configuration and is ignored by Git.
 ## Known Issues and Limitations
 
 - Current automated tests cover only schema and local database behavior; recent UI interactions lack verified automated/browser results in this assessment.
 - Local browser storage may be cleared or evicted. Users need exported JSON backups for manual recovery.
 - Undo/redo is partial, in-memory history rather than version history.
-- No production build or runtime/browser validation was completed here.
+- Production build is unverified; interactive authenticated browser flows remain pending.
 - Node-based npm test/build invocation hit a sandbox path-resolution `EPERM`; test execution is paused at the user's instruction.
 
 ## Environment
 
-No environment variables are required by the current app.
+The app reads DATABASE_URL, BETTER_AUTH_URL, and BETTER_AUTH_SECRET from apps/web/.env.local. A root-level .env containing BETTER_AUTH_API_KEY is not used by this app.
+
+
+## 2026-10-17 Phase 1B implementation update
+
+Source now includes Better Auth, PostgreSQL/Drizzle setup, account diagram endpoints, guest transfer that retains local canvases, and offline account edit queuing with separate copies on revision conflicts. Verification completed: TypeScript no-emit, targeted ESLint, and git diff --check. Automated tests were not run. Database migration/runtime and browser QA remain unverified because Docker Desktop's database engine was unavailable. Email verification and password reset delivery, durable version history/checkpoint policy, and hosting are still open.
+
+
+## 2026-10-18 local account foundation setup
+
+Node v24.20.0 is active. PostgreSQL 17 is running through Docker Compose on host port 5433; host port 5432 is occupied by an existing Windows PostgreSQL service, which was left untouched. The Drizzle migration applied successfully and created account, diagram, session, user, and verification tables. TypeScript passed after setup. No automated tests were run. HTTP checks passed for the app page (200), unauthenticated session endpoint (200/null), and protected diagram listing (401). Interactive browser sign-up/sign-in and sync remain unverified; user must enter account credentials.
+
+## 2026-10-18 social sign-in implementation
+
+The account dialog includes Google (Gmail) and GitHub OAuth buttons. Better Auth only registers a provider when its server-side client ID and secret are configured in `apps/web/.env.local`; see `apps/web/README.md` and `.env.example` for variable names and callback URLs. Provider credentials and interactive OAuth flows remain unverified.

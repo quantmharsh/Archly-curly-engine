@@ -2,7 +2,7 @@
 
 ## Handoff Date
 
-2026-10-05
+2026-10-18
 
 ## Previous Agent
 
@@ -10,7 +10,7 @@ Codex
 
 ## Current Phase
 
-Phase 1A: guest canvas, in progress. Phase 1B has not started.
+Phase 1A guest canvas remains in progress; Phase 1B account/sync foundation is now in progress.
 
 ## What Was Done In This Session
 
@@ -41,7 +41,8 @@ Have the user/testing agent review the Phase 1A interaction QA checklists (`apps
 - JSON import validates and creates a new diagram with a new ID; it does not replace an existing diagram.
 - The graph is canonical structured data, schema version 1. Edge render type (`archly`) is separate from optional semantic category metadata.
 - Connection categories have default visual presets, with manual edge style controls in the UI.
-- The sign-in control is a placeholder. PostgreSQL/Drizzle/auth remain Phase 1B proposals in `docs/decisions.md` and `PHASE_PLAN.md`.
+- Better Auth email/password sign-in is implemented as a Phase 1B foundation. PostgreSQL/Drizzle/Better Auth are accepted choices for Phase 1B in `docs/decisions.md` and `PHASE_PLAN.md`.
+- The account dialog also offers optional Google (Gmail) and GitHub OAuth. Add provider credentials to `apps/web/.env.local` and register the callback URLs from `apps/web/README.md`. Interactive provider flows remain unverified.
 - Do not run tests unless the user authorizes them; the prior test invocation could not get as far as Vitest due to sandbox path resolution.
 
 ## Files To Inspect First
@@ -63,6 +64,16 @@ Have the user/testing agent review the Phase 1A interaction QA checklists (`apps
 
 ## Do Not Do
 
-- Do not start Phase 1B or add accounts/cloud sync before guest migration, conflict, and provider decisions are reviewed.
+- Continue the approved Phase 1B foundation. Hosting and durable version-history/checkpoint policy remain undecided; do not run automated tests until explicitly authorized.
 - Do not add Redis, RabbitMQ, realtime, AI, code import, voice, presentation, or workers to Phase 1A without an explicit scope discussion.
 - Do not claim UI interactions, build, lint, or tests passed unless verified; do not run tests until the user gives permission.
+
+
+## 2026-10-17 continuation
+
+Phase 1B account/sync foundation is in progress in apps/web. Read its README and source for setup and behavior. TypeScript, targeted ESLint, and diff whitespace checks passed; no automated tests were run. A local PostgreSQL migration/runtime check and browser QA are still required. Do not run automated tests until the user authorizes them. Outstanding product/launch work: durable version-history policy, email delivery for verification/reset, and hosting selection.
+
+
+## 2026-10-18 continuation status
+
+Node v24.20.0 is active. Docker PostgreSQL 17 is healthy on host port 5433 because a Windows PostgreSQL process already owns 5432; that existing service was not modified. Drizzle migration applied successfully and the five auth/diagram tables were confirmed. TypeScript passed; HTTP checks returned page 200, no-session 200/null, and unauthenticated diagram API 401. Automated tests were not run. Browser sign-up/sign-in and sync validation remain pending; the user must enter credentials. Next, manually verify guest transfer, account persistence, and offline/conflict behavior, then decide durable version history.

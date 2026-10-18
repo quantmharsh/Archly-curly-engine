@@ -4,389 +4,55 @@ import {
   addEdge,
   Background,
   BackgroundVariant,
-  BaseEdge,
   ConnectionMode,
   Controls,
-  EdgeLabelRenderer,
-  Handle,
   MarkerType,
   MiniMap,
-  Position,
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
   applyEdgeChanges,
   applyNodeChanges,
-  getSmoothStepPath,
   useEdgesState,
   useNodesState,
-  type Connection,
-  type Edge,
-  type EdgeProps,
-  type Node,
-  type NodeProps,
   useReactFlow,
+  type Connection,
 } from "@xyflow/react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { listLocalDiagrams, readLastOpenDiagramId, readLocalDiagram, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { getAccountDiagramCache, getGuestTransferReceipt, listAccountDiagramCache, listLocalDiagrams, queueDiagramSync, readLastOpenDiagramId, readLocalDiagram, removeQueuedDiagramSync, saveAccountDiagramCache, saveGuestTransferReceipt, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
 import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema";
-
-type Kind = "service" | "database" | "api" | "queue" | "external" | "decision" | "worker" | "function";
-type ConnectionKind = "request" | "data" | "event";
-type NodeData = { label: string; description: string; color: string; kind: Kind };
-type FlowNode = Node<NodeData, "engineering">;
-type EdgeWaypoint = { x: number; y: number };
-type FlowEdge = Edge<{ waypoints?: EdgeWaypoint[]; connectionKind?: ConnectionKind }>;
-const HistoryContext = createContext<() => void>(() => undefined);
-const EdgeEditorContext = createContext<{
-  updateEdge: (id: string, updates: Partial<FlowEdge>) => void;
-  selectEdge: (id: string) => void;
-}>({ updateEdge: () => undefined, selectEdge: () => undefined });
-
-const kindMeta: Record<Kind, { label: string; icon: string; className: string; hint: string; mapColor: string }> = {
-  service: { label: "Service", icon: "◈", className: "kind-service", hint: "Business logic", mapColor: "#8094d3" },
-  database: { label: "Database", icon: "▤", className: "kind-database", hint: "Persistent storage", mapColor: "#72a797" },
-  api: { label: "API", icon: "↗", className: "kind-api", hint: "App or endpoint", mapColor: "#638bb0" },
-  queue: { label: "Queue", icon: "⇢", className: "kind-queue", hint: "Async messaging", mapColor: "#c18b49" },
-  external: { label: "External", icon: "◎", className: "kind-external", hint: "Third-party system", mapColor: "#9169ab" },
-  decision: { label: "Decision", icon: "◆", className: "kind-decision", hint: "Branch or condition", mapColor: "#b5626f" },
-  worker: { label: "Worker", icon: "⟳", className: "kind-worker", hint: "Background processing", mapColor: "#6b7789" },
-  function: { label: "Function", icon: "λ", className: "kind-function", hint: "Serverless compute", mapColor: "#97893f" },
-};
-
-// Connection handles exist on all four sides so a flow can run left/right or
-// up/down. All four are source handles: React Flow's loose connection mode lets
-// any handle start or finish a connection, and the drag direction decides which
-// node is the source. These two are the horizontal defaults that older edges
-// without handle ids are resolved to (see activateDocument / makeDocument).
-const HANDLE_RIGHT = "right";
-const HANDLE_LEFT = "left";
-
-const connectionMeta: Record<ConnectionKind, { label: string; hint: string; animated: boolean; className: string }> = {
-  request: { label: "HTTPS request", hint: "HTTP / API call", animated: true, className: "connection-request" },
-  data: { label: "Data flow", hint: "Read / write", animated: false, className: "connection-data" },
-  event: { label: "Event publish", hint: "Queue / async", animated: true, className: "connection-event" },
-};
-
-const connectionStyle: Record<ConnectionKind, { stroke: string; strokeWidth: number; strokeDasharray?: string }> = {
-  request: { stroke: "#3478c9", strokeWidth: 2.2 },
-  data: { stroke: "#21866e", strokeWidth: 2.2, strokeDasharray: "9 6" },
-  event: { stroke: "#d38a2c", strokeWidth: 2.4, strokeDasharray: "2 5" },
-};
-const customConnectionStyle = { stroke: "#8290a6", strokeWidth: 2, strokeDasharray: undefined };
-const GRID_STEP = 22;
-const MIN_ZOOM = 0.2;
-const MAX_ZOOM = 2.5;
-// React Flow's trackpad/touchpad pinch goes through a ctrl+wheel handler whose
-// internal factor is 10x smaller on Windows than on macOS, making pinch feel
-// sluggish. We intercept that gesture ourselves and amplify it; touchscreen
-// pinch (real touch events) keeps React Flow's natural 1:1 ratio.
-const PINCH_WHEEL_INTENSITY = 0.02;
-
-const seedNodes: FlowNode[] = [
-  { id: "web-client", type: "engineering", position: { x: 70, y: 185 }, data: { label: "Web client", description: "Customer-facing app", color: "#ffffff", kind: "api" } },
-  { id: "order-service", type: "engineering", position: { x: 380, y: 185 }, data: { label: "Order service", description: "Validates and routes orders", color: "#ffffff", kind: "service" } },
-  { id: "orders-db", type: "engineering", position: { x: 705, y: 75 }, data: { label: "Orders DB", description: "Order and customer records", color: "#ffffff", kind: "database" } },
-  { id: "events", type: "engineering", position: { x: 705, y: 300 }, data: { label: "Event queue", description: "Async order events", color: "#ffffff", kind: "queue" } },
-];
-
-const seedEdges: FlowEdge[] = [
-  { id: "client-order", source: "web-client", target: "order-service", label: "HTTPS", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "request" } },
-  { id: "order-db", source: "order-service", target: "orders-db", label: "read / write", type: "archly", markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "data" } },
-  { id: "order-events", source: "order-service", target: "events", label: "publish", type: "archly", animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#8290a6" }, data: { connectionKind: "event" } },
-];
-
-function EngineeringNode({ id, data, selected }: NodeProps<FlowNode>) {
-  const { updateNodeData } = useReactFlow<FlowNode, FlowEdge>();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(data.label);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const cancelEditRef = useRef(false);
-  const meta = kindMeta[data.kind];
-
-  useEffect(() => {
-    if (editing) inputRef.current?.select();
-  }, [editing]);
-
-  const finishEditing = () => {
-    if (cancelEditRef.current) {
-      cancelEditRef.current = false;
-      setEditing(false);
-      return;
-    }
-    updateNodeData(id, { label: draft.trim() || "Untitled component" });
-    setEditing(false);
-  };
-
-  const startEditing = () => {
-    setDraft(data.label);
-    setEditing(true);
-  };
-
-  return (
-    <div className={`engineering-node ${meta.className} ${selected ? "is-selected" : ""}`} style={{ "--node-tint": data.color } as CSSProperties} onDoubleClick={(event) => {
-      if ((event.target as HTMLElement).closest("input")) return;
-      event.preventDefault();
-      startEditing();
-    }}>
-      {/* Right is declared first so an edge that somehow reaches the canvas
-          without a handle id still leaves from the horizontal side. Edges from
-          older documents are normalised to right/left in activateDocument,
-          because with every handle being a source the library's own fallback
-          would otherwise pick the right side for both ends. */}
-      <Handle type="source" id={HANDLE_RIGHT} position={Position.Right} />
-      <Handle type="source" id="top" position={Position.Top} />
-      <Handle type="source" id="bottom" position={Position.Bottom} />
-      <Handle type="source" id={HANDLE_LEFT} position={Position.Left} />
-      <div className="node-glyph">{meta.icon}</div>
-      <div className="node-copy">
-        <span className="node-kind">{meta.label}</span>
-        {editing ? <input ref={inputRef} className="node-label-input nodrag" aria-label="Component name" value={draft} maxLength={80}
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={finishEditing}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") inputRef.current?.blur();
-            if (event.key === "Escape") { cancelEditRef.current = true; setDraft(data.label); inputRef.current?.blur(); }
-          }}
-        /> : <strong title="Double-click to edit">{data.label}</strong>}
-        <small>{data.description || "Add a short description"}</small>
-      </div>
-      <Handle type="source" position={Position.Right} />
-    </div>
-  );
-}
-
-function getWaypointEdgePath(source: EdgeWaypoint, target: EdgeWaypoint, waypoints: EdgeWaypoint[]) {
-  const points = [source, ...waypoints, target];
-  return points.slice(0, -1).reduce((path, point, index) => {
-    const previous = points[Math.max(0, index - 1)];
-    const next = points[index + 1];
-    const following = points[Math.min(points.length - 1, index + 2)];
-    const firstControl = { x: point.x + (next.x - previous.x) / 6, y: point.y + (next.y - previous.y) / 6 };
-    const secondControl = { x: next.x - (following.x - point.x) / 6, y: next.y - (following.y - point.y) / 6 };
-    return `${path} C ${firstControl.x},${firstControl.y} ${secondControl.x},${secondControl.y} ${next.x},${next.y}`;
-  }, `M ${source.x},${source.y}`);
-}
-
-function DraggableEdge({
-  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
-  markerStart, markerEnd, style, selected, data, label,
-  labelStyle, labelShowBg, labelBgStyle,
-}: EdgeProps<FlowEdge>) {
-  const { getEdge, screenToFlowPosition, updateEdgeData } = useReactFlow<FlowNode, FlowEdge>();
-  const recordHistory = useContext(HistoryContext);
-  const { updateEdge, selectEdge } = useContext(EdgeEditorContext);
-  const dragIndexRef = useRef<number | null>(null);
-  const labelInputRef = useRef<HTMLInputElement>(null);
-  const cancelLabelEditRef = useRef(false);
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [labelDraft, setLabelDraft] = useState(typeof label === "string" ? label : "");
-  const waypoints = data?.waypoints ?? [];
-  const source = { x: sourceX, y: sourceY };
-  const target = { x: targetX, y: targetY };
-  const [smoothStepPath, defaultLabelX, defaultLabelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 12 });
-  const path = waypoints.length ? getWaypointEdgePath(source, target, waypoints) : smoothStepPath;
-  // For manually routed edges, anchor the label to the route itself so it follows
-  // dragged bends and endpoint movement instead of staying on the default route.
-  const labelPosition = waypoints.length ? (() => {
-    const points = [source, ...waypoints, target];
-    const lengths = points.slice(0, -1).map((point, index) => Math.hypot(points[index + 1].x - point.x, points[index + 1].y - point.y));
-    const routeLength = lengths.reduce((total, length) => total + length, 0);
-    let remaining = routeLength / 2;
-    for (let index = 0; index < lengths.length; index += 1) {
-      const length = lengths[index];
-      if (remaining <= length || index === lengths.length - 1) {
-        const start = points[index];
-        const end = points[index + 1];
-        const progress = length ? remaining / length : 0;
-        return { x: start.x + (end.x - start.x) * progress, y: start.y + (end.y - start.y) * progress };
-      }
-      remaining -= length;
-    }
-    return { x: defaultLabelX, y: defaultLabelY };
-  })() : { x: defaultLabelX, y: defaultLabelY };
-  const centerX = labelPosition.x;
-  const centerY = labelPosition.y;
-  const categoryStyle = data?.connectionKind ? connectionStyle[data.connectionKind] : customConnectionStyle;
-  const resolvedEdgeStyle = { ...categoryStyle, ...style };
-  const isDashed = Boolean(resolvedEdgeStyle.strokeDasharray);
-  const edgeStyle = isDashed ? { ...resolvedEdgeStyle, strokeWidth: Math.max(Number(resolvedEdgeStyle.strokeWidth) || 0, 2.5) } : resolvedEdgeStyle;
-
-  useEffect(() => {
-    if (editingLabel) {
-      labelInputRef.current?.focus();
-      labelInputRef.current?.select();
-    }
-  }, [editingLabel]);
-
-  const finishLabelEditing = () => {
-    if (cancelLabelEditRef.current) {
-      cancelLabelEditRef.current = false;
-      setLabelDraft(typeof label === "string" ? label : "");
-      setEditingLabel(false);
-      return;
-    }
-    const nextLabel = labelDraft.trim();
-    if (nextLabel !== (typeof label === "string" ? label : "")) {
-      recordHistory();
-      updateEdge(id, { label: nextLabel || undefined });
-    }
-    setEditingLabel(false);
-  };
-
-  const moveWaypoint = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const index = dragIndexRef.current;
-    if (index === null) return;
-    const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const current = getEdge(id)?.data?.waypoints ?? waypoints;
-    const next = [...current];
-    next[index] = position;
-    updateEdgeData(id, { waypoints: next });
-  };
-
-  const startWaypointDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
-    event.preventDefault();
-    event.stopPropagation();
-    recordHistory();
-    dragIndexRef.current = index;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  return <>
-    <BaseEdge
-      id={id}
-      path={path}
-      markerStart={markerStart}
-      markerEnd={markerEnd}
-      style={edgeStyle}
-      interactionWidth={24}
-    />
-    {(selected || Boolean(label) || editingLabel) && <EdgeLabelRenderer>
-      {(Boolean(label) || selected || editingLabel) && <div
-        className={`edge-label-anchor nodrag nopan ${selected ? "is-selected" : ""}`}
-        style={{ ...labelStyle, ...(labelShowBg ? labelBgStyle : {}), transform: `translate(-50%,-50%) translate(${centerX}px,${centerY}px)` }}
-        onDoubleClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          cancelLabelEditRef.current = false;
-          setLabelDraft(typeof label === "string" ? label : "");
-          setEditingLabel(true);
-        }}
-      >{editingLabel ? <input
-        ref={labelInputRef}
-        className="edge-label-input nodrag nopan"
-        aria-label="Connection label"
-        maxLength={100}
-        value={labelDraft}
-        onPointerDown={(event) => event.stopPropagation()}
-        onChange={(event) => setLabelDraft(event.target.value)}
-        onBlur={finishLabelEditing}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") labelInputRef.current?.blur();
-          if (event.key === "Escape") { cancelLabelEditRef.current = true; labelInputRef.current?.blur(); }
-        }}
-      /> : <button
-        className="edge-label-text"
-        type="button"
-        title="Double-click to edit connection label"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => { event.stopPropagation(); selectEdge(id); }}
-      >{typeof label === "string" && label ? label : "Add label"}</button>}</div>}
-      <button
-        className="edge-add-bend nodrag nopan"
-        aria-label="Add a draggable bend to this arrow"
-        title="Add bend"
-        style={{ transform: `translate(-50%,-50%) translate(${centerX}px,${centerY - 22}px)` }}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          recordHistory();
-          if (!waypoints.length) {
-            updateEdgeData(id, { waypoints: [{ x: centerX, y: centerY }] });
-            return;
-          }
-          const points = [source, ...waypoints, target];
-          let longestSegment = 0;
-          let longestLength = -1;
-          points.slice(0, -1).forEach((point, index) => {
-            const next = points[index + 1];
-            const length = Math.hypot(next.x - point.x, next.y - point.y);
-            if (length > longestLength) { longestLength = length; longestSegment = index; }
-          });
-          const start = points[longestSegment];
-          const end = points[longestSegment + 1];
-          const nextWaypoints = [...waypoints];
-          nextWaypoints.splice(longestSegment, 0, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 });
-          updateEdgeData(id, { waypoints: nextWaypoints });
-        }}
-      >+</button>
-      {waypoints.map((point, index) => <button
-        key={`${id}-waypoint-${index}`}
-        className="edge-waypoint nodrag nopan"
-        aria-label={`Drag arrow bend ${index + 1}`}
-        title="Drag to reshape; double-click to remove bend"
-        style={{ transform: `translate(-50%,-50%) translate(${point.x}px,${point.y}px)` }}
-        onPointerDown={(event) => startWaypointDrag(event, index)}
-        onPointerMove={moveWaypoint}
-        onPointerUp={() => { dragIndexRef.current = null; }}
-        onLostPointerCapture={() => { dragIndexRef.current = null; }}
-        onDoubleClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          recordHistory();
-          updateEdgeData(id, { waypoints: waypoints.filter((_, waypointIndex) => waypointIndex !== index) });
-        }}
-      />)}
-    </EdgeLabelRenderer>}
-  </>;
-}
-
-const nodeTypes = { engineering: EngineeringNode };
-const edgeTypes = { archly: DraggableEdge };
-
-type Viewport = { x: number; y: number; zoom: number };
-type Snapshot = { nodes: FlowNode[]; edges: FlowEdge[] };
-type ClipboardSnapshot = { nodes: FlowNode[]; edges: FlowEdge[] };
-
-function makeDocument(id: string, title: string, nodes: FlowNode[], edges: FlowEdge[], canvasColor: string, viewport: Viewport, showGrid: boolean): DiagramDocument {
-  return {
-    id,
-    title,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    graph: {
-      schemaVersion: 1,
-      nodes: nodes.map(({ id: nodeId, position, data }) => ({ id: nodeId, type: "engineering" as const, position, data })),
-      edges: edges.map(({ id: edgeId, source, target, sourceHandle, targetHandle, label, type, animated, markerEnd, style, data }) => ({
-        id: edgeId,
-        source,
-        target,
-        sourceHandle: sourceHandle ?? HANDLE_RIGHT,
-        targetHandle: targetHandle ?? HANDLE_LEFT,
-        label: typeof label === "string" ? label : undefined,
-        type,
-        animated,
-        markerEnd: markerEnd
-          ? typeof markerEnd === "string"
-            ? { type: markerEnd }
-            : { type: String(markerEnd.type), color: markerEnd.color ?? undefined }
-          : undefined,
-        style: style ? { ...style } : undefined,
-        data: data && (data.waypoints?.length || data.connectionKind) ? {
-          ...(data.waypoints?.length ? { waypoints: data.waypoints } : {}),
-          ...(data.connectionKind ? { connectionKind: data.connectionKind } : {}),
-        } : undefined,
-      })),
-      viewport,
-      canvasColor,
-      showGrid,
-    },
-  };
-}
-
+import { AccountDiagramError, createAccountDiagram, flushQueuedAccountDiagrams, listAccountDiagrams, updateAccountDiagram, type VersionedDiagram } from "@/lib/account-diagrams";
+import {
+  GRID_STEP,
+  HANDLE_LEFT,
+  HANDLE_RIGHT,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  PINCH_WHEEL_INTENSITY,
+  connectionMeta,
+  connectionStyle,
+  customConnectionStyle,
+  kindMeta,
+  type ConnectionKind,
+  type FlowEdge,
+  type FlowNode,
+  type Kind,
+  type NodeData,
+  type Viewport,
+} from "@/lib/canvas-config";
+import { makeDocument, normalizeStoredEdges } from "@/lib/diagram-document";
+import { seedEdges, seedNodes } from "@/lib/seed-diagram";
+import { EdgeEditorContext, HistoryContext } from "@/components/canvas/contexts";
+import { edgeTypes, nodeTypes } from "@/components/canvas/nodeTypes";
+import { useCanvasGeometry } from "@/hooks/useCanvasGeometry";
+import { useClipboard } from "@/hooks/useClipboard";
+import { useDiagramHistory } from "@/hooks/useDiagramHistory";
+import { AccountDialog } from "@/components/AccountDialog";
+import { authClient } from "@/lib/auth-client";
 function StudioContent() {
   const { screenToFlowPosition, fitView, fitBounds, getNodesBounds, setViewport: setFlowViewport, getViewport, zoomIn, zoomOut } = useReactFlow<FlowNode, FlowEdge>();
+  const authSession = authClient.useSession();
+  const { flowRef, snapToGridPoint, viewportCenterFlow, localMenuPoint, zoomByPointer } = useCanvasGeometry(screenToFlowPosition, getViewport, setFlowViewport);
   const [diagramId, setDiagramId] = useState("starter-flow");
   const [title, setTitle] = useState("Commerce service flow");
   // Start empty rather than with the seeded starter graph: the stored canvas is
@@ -399,13 +65,19 @@ function StudioContent() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [edgeLabelDraft, setEdgeLabelDraft] = useState("");
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<"settings" | "inspector" | "edge-inspector">("settings");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [diagrams, setDiagrams] = useState<DiagramDocument[]>([]);
   const [saveState, setSaveState] = useState<"saving" | "saved" | "error">("saved");
   const [showLibrary, setShowLibrary] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [accountDiagrams, setAccountDiagrams] = useState<VersionedDiagram[]>([]);
+  const [transferPrompt, setTransferPrompt] = useState<{ userId: string; documents: DiagramDocument[] } | null>(null);
+  const [activeSource, setActiveSource] = useState<"guest" | "account">("guest");
+  const [activeAccountUserId, setActiveAccountUserId] = useState<string | null>(null);
+  const [accountSyncTick, setAccountSyncTick] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{ document: DiagramDocument; fileName: string } | null>(null);
   const [importError, setImportError] = useState("");
@@ -421,55 +93,16 @@ function StudioContent() {
   const [commandIndex, setCommandIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ left: number; top: number; type: "pane" | "node" | "edge"; id: string | null; flow: { x: number; y: number } } | null>(null);
   const [quickAdd, setQuickAdd] = useState<{ left: number; top: number; flow: { x: number; y: number } } | null>(null);
-  const flowRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const cancelInspectorEdgeLabelRef = useRef(false);
   const fullscreenPreviousViewportRef = useRef<Viewport | null>(null);
-  const pastRef = useRef<Snapshot[]>([]);
-  const futureRef = useRef<Snapshot[]>([]);
-  const clipboardRef = useRef<ClipboardSnapshot | null>(null);
-  const pasteCountRef = useRef(0);
   const nodeDragActiveRef = useRef(false);
-  const [historyStatus, setHistoryStatus] = useState({ canUndo: false, canRedo: false });
+  const activeRevisionRef = useRef(0);
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
 
-  const snapToGridPoint = (point: { x: number; y: number }) => ({
-    x: Math.round(point.x / GRID_STEP) * GRID_STEP,
-    y: Math.round(point.y / GRID_STEP) * GRID_STEP,
-  });
-
-  const viewportCenterFlow = () => {
-    const rect = flowRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    return screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-  };
-
-  const localMenuPoint = (clientX: number, clientY: number) => {
-    const rect = flowRef.current?.getBoundingClientRect();
-    if (!rect) return { left: clientX, top: clientY };
-    return { left: clientX - rect.left, top: clientY - rect.top };
-  };
-
-  const zoomByPointer = useCallback((factor: number, clientX: number, clientY: number) => {
-    const rect = flowRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const current = getViewport();
-    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.zoom * factor));
-    if (nextZoom === current.zoom) return;
-    const point = screenToFlowPosition({ x: clientX, y: clientY });
-    setFlowViewport({
-      x: clientX - rect.left - point.x * nextZoom,
-      y: clientY - rect.top - point.y * nextZoom,
-      zoom: nextZoom,
-    }, { duration: 0 });
-  }, [getViewport, screenToFlowPosition, setFlowViewport]);
-
-  const recordHistory = useCallback(() => {
-    pastRef.current = [...pastRef.current.slice(-39), { nodes: structuredClone(nodes), edges: structuredClone(edges) }];
-    futureRef.current = [];
-    setHistoryStatus({ canUndo: true, canRedo: false });
-  }, [edges, nodes]);
+  const { recordHistory, undo, redo, resetHistory, historyStatus } = useDiagramHistory(nodes, edges, setNodes, setEdges);
+  const { copySelection, pasteSelection, duplicateSelection, duplicateNode, hasClipboard } = useClipboard(nodes, edges, setNodes, setEdges, setSelectedNodeId, setToast, recordHistory);
 
   const updateEdge = useCallback((id: string, updates: Partial<FlowEdge>) => {
     setEdges((current) => current.map((edge) => edge.id === id ? { ...edge, ...updates } : edge));
@@ -508,85 +141,6 @@ function StudioContent() {
     const currentLabel = typeof selectedEdge.label === "string" ? selectedEdge.label : "";
     if (nextLabel !== currentLabel) updateSelectedEdge({ label: nextLabel || undefined });
   };
-
-  const undo = useCallback(() => {
-    const previous = pastRef.current.pop();
-    if (!previous) return;
-    futureRef.current.push({ nodes: structuredClone(nodes), edges: structuredClone(edges) });
-    setNodes(previous.nodes);
-    setEdges(previous.edges);
-    setHistoryStatus({ canUndo: pastRef.current.length > 0, canRedo: true });
-  }, [edges, nodes, setEdges, setNodes]);
-
-  const redo = useCallback(() => {
-    const next = futureRef.current.pop();
-    if (!next) return;
-    pastRef.current.push({ nodes: structuredClone(nodes), edges: structuredClone(edges) });
-    setNodes(next.nodes);
-    setEdges(next.edges);
-    setHistoryStatus({ canUndo: true, canRedo: futureRef.current.length > 0 });
-  }, [edges, nodes, setEdges, setNodes]);
-
-  const copySelection = useCallback(() => {
-    const selectedNodes = nodes.filter((node) => node.selected);
-    if (!selectedNodes.length) return;
-    const selectedIds = new Set(selectedNodes.map((node) => node.id));
-    clipboardRef.current = {
-      nodes: structuredClone(selectedNodes),
-      edges: structuredClone(edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target))),
-    };
-    pasteCountRef.current = 0;
-    setToast(selectedNodes.length + " component" + (selectedNodes.length === 1 ? "" : "s") + " copied");
-  }, [edges, nodes]);
-
-  const pasteSelection = useCallback(() => {
-    const clipboard = clipboardRef.current;
-    if (!clipboard?.nodes.length) return;
-    recordHistory();
-    pasteCountRef.current += 1;
-    const offset = 44 * pasteCountRef.current;
-    const idMap = new Map(clipboard.nodes.map((node) => [node.id, node.data.kind + "-" + crypto.randomUUID().slice(0, 7)]));
-    const pastedNodes = clipboard.nodes.map((node) => ({
-      ...structuredClone(node),
-      id: idMap.get(node.id)!,
-      position: { x: node.position.x + offset, y: node.position.y + offset },
-      selected: true,
-    }));
-    const pastedEdges = clipboard.edges.map((edge) => ({
-      ...structuredClone(edge),
-      id: "connection-" + crypto.randomUUID(),
-      source: idMap.get(edge.source)!,
-      target: idMap.get(edge.target)!,
-      selected: true,
-      data: edge.data?.waypoints?.length ? {
-        ...edge.data,
-        waypoints: edge.data.waypoints.map((point) => ({ x: point.x + offset, y: point.y + offset })),
-      } : edge.data,
-    }));
-    setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), ...pastedNodes]);
-    setEdges((current) => [...current.map((edge) => ({ ...edge, selected: false })), ...pastedEdges]);
-    setSelectedNodeId(pastedNodes[0]?.id ?? null);
-  }, [recordHistory, setEdges, setNodes]);
-
-  const duplicateSelection = useCallback(() => {
-    const selectedNodes = nodes.filter((node) => node.selected);
-    if (!selectedNodes.length) return;
-    const selectedIds = new Set(selectedNodes.map((node) => node.id));
-    clipboardRef.current = {
-      nodes: structuredClone(selectedNodes),
-      edges: structuredClone(edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target))),
-    };
-    pasteCountRef.current = 0;
-    pasteSelection();
-  }, [edges, nodes, pasteSelection]);
-
-  const duplicateNode = useCallback((id: string) => {
-    const node = nodes.find((candidate) => candidate.id === id);
-    if (!node) return;
-    clipboardRef.current = { nodes: structuredClone([node]), edges: [] };
-    pasteCountRef.current = 0;
-    pasteSelection();
-  }, [nodes, pasteSelection]);
 
   const removeNode = useCallback((id: string) => {
     recordHistory();
@@ -638,7 +192,7 @@ function StudioContent() {
         event.preventDefault();
         copySelection();
       } else if (key === "v") {
-        if (!clipboardRef.current?.nodes.length) return;
+        if (!hasClipboard()) return;
         event.preventDefault();
         pasteSelection();
       } else if (key === "d") {
@@ -662,7 +216,7 @@ function StudioContent() {
     };
     window.addEventListener("keydown", handleCanvasShortcuts);
     return () => window.removeEventListener("keydown", handleCanvasShortcuts);
-  }, [copySelection, duplicateSelection, fitView, nodes, pasteSelection, redo, undo, recordHistory, setNodes, zoomIn, zoomOut]);
+  }, [copySelection, duplicateSelection, fitView, hasClipboard, nodes, pasteSelection, redo, undo, recordHistory, setNodes, zoomIn, zoomOut]);
 
   const refreshLibrary = useCallback(async () => {
     setDiagrams(await listLocalDiagrams());
@@ -673,25 +227,28 @@ function StudioContent() {
   // saved before four-way handles have no handle ids; they resolve to the
   // horizontal defaults so existing diagrams keep their routing.
   const activateDocument = useCallback((document: DiagramDocument) => {
+    setActiveSource("guest");
+    setActiveAccountUserId(null);
+    activeRevisionRef.current = 0;
     setDiagramId(document.id);
     setTitle(document.title);
     setNodes(document.graph.nodes as FlowNode[]);
-    setEdges(document.graph.edges.map((edge) => ({
-      ...edge,
-      type: "archly",
-      sourceHandle: edge.sourceHandle ?? HANDLE_RIGHT,
-      targetHandle: edge.targetHandle ?? HANDLE_LEFT,
-    })) as FlowEdge[]);
+    setEdges(normalizeStoredEdges(document.graph.edges));
     setCanvasColor(document.graph.canvasColor);
     setViewport(document.graph.viewport);
     setShowGrid(document.graph.showGrid);
-    pastRef.current = [];
-    futureRef.current = [];
-    setHistoryStatus({ canUndo: false, canRedo: false });
+    resetHistory();
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     saveLastOpenDiagramId(document.id);
-  }, [setEdges, setNodes]);
+  }, [resetHistory, setEdges, setNodes]);
+
+  const activateAccountDocument = useCallback((entry: VersionedDiagram, userId: string) => {
+    activateDocument(entry.document);
+    setActiveSource("account");
+    setActiveAccountUserId(userId);
+    activeRevisionRef.current = entry.revision;
+  }, [activateDocument]);
 
   useEffect(() => {
     let active = true;
@@ -727,6 +284,95 @@ function StudioContent() {
     return () => { active = false; };
   }, [activateDocument, refreshLibrary]);
 
+  const accountUserId = authSession.data?.user.id ?? null;
+
+  useEffect(() => {
+    if (authSession.isPending) return;
+    if (!accountUserId) {
+      setAccountDiagrams([]);
+      setTransferPrompt(null);
+      return;
+    }
+
+    let active = true;
+    void (async () => {
+      try {
+        const guestDocuments = await listLocalDiagrams();
+        const documentsToOffer: DiagramDocument[] = [];
+        for (const document of guestDocuments) {
+          const receipt = await getGuestTransferReceipt(accountUserId, document.id);
+          if (!receipt || receipt.guestUpdatedAt !== document.updatedAt) documentsToOffer.push(document);
+        }
+
+        let remote: VersionedDiagram[];
+        try {
+          remote = await listAccountDiagrams();
+          if (navigator.onLine) {
+            const conflicts = await flushQueuedAccountDiagrams(accountUserId);
+            if (conflicts.length) setToast("Offline edits were synced as conflict copies. Review both versions in your account canvases.");
+            remote = await listAccountDiagrams();
+          }
+          for (const entry of remote) {
+            const cached = await getAccountDiagramCache(accountUserId, entry.document.id);
+            if (!cached?.dirty) {
+              await saveAccountDiagramCache({ userId: accountUserId, diagramId: entry.document.id, document: entry.document, revision: entry.revision, updatedAt: entry.document.updatedAt, dirty: false });
+            }
+          }
+        } catch {
+          const cached = await listAccountDiagramCache(accountUserId);
+          remote = cached.map(({ document, revision }) => ({ document, revision }));
+        }
+        const cachedRows = await listAccountDiagramCache(accountUserId);
+        const combined = new Map(remote.map((entry) => [entry.document.id, entry]));
+        for (const cached of cachedRows) {
+          if (cached.dirty) combined.set(cached.diagramId, { document: cached.document, revision: cached.revision });
+        }
+        remote = [...combined.values()].sort((a, b) => b.document.updatedAt - a.document.updatedAt);
+
+        if (!active) return;
+        setAccountDiagrams(remote);
+        if (documentsToOffer.length) setTransferPrompt({ userId: accountUserId, documents: documentsToOffer });
+        if (remote.length && !documentsToOffer.length) {
+          const remembered = readLastOpenDiagramId();
+          const next = remote.find((entry) => entry.document.id === remembered) ?? remote[0];
+          activateAccountDocument(next, accountUserId);
+        }
+      } catch {
+        if (active) setToast("Account canvases could not be loaded yet.");
+      }
+    })();
+    return () => { active = false; };
+  }, [accountUserId, activateAccountDocument, authSession.isPending]);
+
+  useEffect(() => {
+    if (authSession.isPending || authSession.data?.user || activeSource !== "account") return;
+    setAccountDiagrams([]);
+    void (async () => {
+      const local = await listLocalDiagrams();
+      const remembered = readLastOpenDiagramId();
+      const next = (remembered ? await readLocalDiagram(remembered).catch(() => undefined) : undefined) ?? local[0];
+      if (next) activateDocument(next);
+    })();
+  }, [activeSource, activateDocument, authSession.data?.user, authSession.isPending]);
+
+  useEffect(() => {
+    if (activeSource !== "account" || !accountUserId) return;
+    const syncWhenOnline = () => {
+      setAccountSyncTick((tick) => tick + 1);
+      void flushQueuedAccountDiagrams(accountUserId, diagramId).then(async (conflicts) => {
+        const remote = await listAccountDiagrams();
+        setAccountDiagrams(remote);
+        for (const entry of remote) {
+          const cached = await getAccountDiagramCache(accountUserId, entry.document.id);
+          if (!cached?.dirty) await saveAccountDiagramCache({ userId: accountUserId, diagramId: entry.document.id, document: entry.document, revision: entry.revision, updatedAt: entry.document.updatedAt, dirty: false });
+        }
+        if (conflicts.length) setToast("Offline edits were synced as conflict copies. Review both versions in your account canvases.");
+      }).catch(() => setToast("Some account canvases are still waiting to sync."));
+    };
+    window.addEventListener("online", syncWhenOnline);
+    return () => window.removeEventListener("online", syncWhenOnline);
+  }, [accountUserId, activeSource, diagramId]);
+
   useEffect(() => {
     const updateFullscreenState = () => {
       const fullscreen = document.fullscreenElement === flowRef.current;
@@ -740,25 +386,65 @@ function StudioContent() {
     };
     document.addEventListener("fullscreenchange", updateFullscreenState);
     return () => document.removeEventListener("fullscreenchange", updateFullscreenState);
-  }, [setFlowViewport]);
+  }, [flowRef, setFlowViewport]);
 
   useEffect(() => {
     if (!loaded) return;
     const timer = window.setTimeout(async () => {
       setSaveState("saving");
       try {
-        const previous = await readLocalDiagram(diagramId);
         const document = makeDocument(diagramId, title.trim() || "Untitled flow", nodes, edges, canvasColor, viewport, showGrid);
-        document.createdAt = previous?.createdAt ?? document.createdAt;
-        await saveLocalDiagram(document);
-        await refreshLibrary();
-        setSaveState("saved");
+        if (activeSource === "account" && activeAccountUserId) {
+          const cached = await getAccountDiagramCache(activeAccountUserId, diagramId);
+          document.createdAt = cached?.document.createdAt ?? document.createdAt;
+          const expectedRevision = cached?.revision ?? activeRevisionRef.current;
+          await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId, document, revision: expectedRevision, updatedAt: document.updatedAt, dirty: true });
+          await queueDiagramSync({ userId: activeAccountUserId, diagramId, document, expectedRevision, updatedAt: document.updatedAt });
+          try {
+            const result = expectedRevision > 0
+              ? await updateAccountDiagram(document, expectedRevision)
+              : await createAccountDiagram(document);
+            activeRevisionRef.current = result.revision;
+            await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId, document, revision: result.revision, updatedAt: document.updatedAt, dirty: false });
+            await removeQueuedDiagramSync(activeAccountUserId, diagramId);
+            setAccountDiagrams((current) => [{ document, revision: result.revision }, ...current.filter((entry) => entry.document.id !== diagramId)]);
+            setSaveState("saved");
+          } catch (error) {
+            if (error instanceof AccountDiagramError && error.status === 409) {
+              const conflictCopy = { ...document, id: crypto.randomUUID(), title: `${document.title} (conflict copy)`, updatedAt: Date.now() };
+              try {
+                if (error.current) await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId, document: error.current.document, revision: error.current.revision, updatedAt: error.current.document.updatedAt, dirty: false });
+                const savedCopy = await createAccountDiagram(conflictCopy);
+                await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId: conflictCopy.id, document: conflictCopy, revision: savedCopy.revision, updatedAt: conflictCopy.updatedAt, dirty: false });
+                await removeQueuedDiagramSync(activeAccountUserId, diagramId);
+                if (error.current) setAccountDiagrams((current) => [{ ...error.current!, revision: error.current!.revision }, { document: conflictCopy, revision: savedCopy.revision }, ...current.filter((entry) => entry.document.id !== diagramId)]);
+                setDiagramId(conflictCopy.id);
+                setTitle(conflictCopy.title);
+                activeRevisionRef.current = savedCopy.revision;
+                saveLastOpenDiagramId(conflictCopy.id);
+                setToast("Both edits were kept. Review the conflict copy in your account canvases.");
+                setSaveState("saved");
+              } catch {
+                setSaveState("saved");
+                setToast("A sync conflict needs attention. Your edited canvas is still saved on this device.");
+              }
+            } else {
+              setSaveState("saved");
+            }
+          }
+        } else {
+          const previous = await readLocalDiagram(diagramId);
+          document.createdAt = previous?.createdAt ?? document.createdAt;
+          await saveLocalDiagram(document);
+          await refreshLibrary();
+          setSaveState("saved");
+        }
       } catch {
         setSaveState("error");
       }
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [canvasColor, diagramId, edges, loaded, nodes, refreshLibrary, showGrid, title, viewport]);
+  }, [activeAccountUserId, activeSource, accountSyncTick, canvasColor, diagramId, edges, loaded, nodes, refreshLibrary, showGrid, title, viewport]);
 
   useEffect(() => {
     if (!toast) return;
@@ -806,7 +492,7 @@ function StudioContent() {
     };
     element.addEventListener("wheel", handlePinchWheel, { passive: false, capture: true });
     return () => element.removeEventListener("wheel", handlePinchWheel, { capture: true });
-  }, [zoomByPointer]);
+  }, [flowRef, zoomByPointer]);
 
   const onConnect = useCallback((connection: Connection) => {
     recordHistory();
@@ -901,6 +587,24 @@ function StudioContent() {
   const createDiagram = async () => {
     const id = crypto.randomUUID();
     const next = makeDocument(id, "Untitled flow", [], [], canvasColor, { x: 0, y: 0, zoom: 1 }, true);
+    if (accountUserId) {
+      let revision = 0;
+      await saveAccountDiagramCache({ userId: accountUserId, diagramId: id, document: next, revision: 0, updatedAt: next.updatedAt, dirty: true });
+      await queueDiagramSync({ userId: accountUserId, diagramId: id, document: next, expectedRevision: 0, updatedAt: next.updatedAt });
+      try {
+        const saved = await createAccountDiagram(next);
+        revision = saved.revision;
+        await saveAccountDiagramCache({ userId: accountUserId, diagramId: id, document: next, revision: saved.revision, updatedAt: next.updatedAt, dirty: false });
+        await removeQueuedDiagramSync(accountUserId, id);
+        setAccountDiagrams((current) => [{ document: next, revision: saved.revision }, ...current]);
+      } catch {
+        setToast("New account canvas saved on this device. It will sync when you reconnect.");
+      }
+      setAccountDiagrams((current) => [{ document: next, revision }, ...current.filter((entry) => entry.document.id !== id)]);
+      activateAccountDocument({ document: next, revision }, accountUserId);
+      setShowLibrary(false);
+      return;
+    }
     await saveLocalDiagram(next);
     activateDocument(next);
     setShowLibrary(false);
@@ -913,6 +617,59 @@ function StudioContent() {
     if (!document) return;
     activateDocument(document);
     setShowLibrary(false);
+  };
+
+  const openAccountDiagram = (entry: VersionedDiagram) => {
+    if (!accountUserId) return;
+    activateAccountDocument(entry, accountUserId);
+    setShowLibrary(false);
+  };
+
+  const transferGuestCanvases = async () => {
+    if (!transferPrompt) return;
+    const { userId, documents } = transferPrompt;
+    setSaveState("saving");
+    const imported: VersionedDiagram[] = [];
+    let conflictCount = 0;
+    try {
+      for (const guestDocument of documents) {
+        let accountDocument = guestDocument;
+        let result: Awaited<ReturnType<typeof createAccountDiagram>>;
+        try {
+          result = await createAccountDiagram(accountDocument);
+        } catch (error) {
+          if (!(error instanceof AccountDiagramError) || error.status !== 409) throw error;
+          accountDocument = { ...guestDocument, id: crypto.randomUUID(), title: `${guestDocument.title} (local copy)`, updatedAt: Date.now() };
+          result = await createAccountDiagram(accountDocument);
+          conflictCount += 1;
+        }
+        imported.push({ document: accountDocument, revision: result.revision });
+        await saveAccountDiagramCache({ userId, diagramId: accountDocument.id, document: accountDocument, revision: result.revision, updatedAt: accountDocument.updatedAt, dirty: false });
+        await saveGuestTransferReceipt({ userId, diagramId: guestDocument.id, guestUpdatedAt: guestDocument.updatedAt, accountDiagramId: accountDocument.id });
+      }
+      const remote = await listAccountDiagrams();
+      setAccountDiagrams(remote);
+      const currentTransfer = imported.find((entry) => entry.document.id === diagramId) ?? imported[0];
+      if (currentTransfer) activateAccountDocument(currentTransfer, userId);
+      setTransferPrompt(null);
+      setSaveState("saved");
+      setToast(conflictCount ? `${imported.length} canvases transferred; ${conflictCount} conflict copy kept. Review both in your account.` : `${imported.length} canvases copied to your account. Local originals are still here.`);
+    } catch (error) {
+      setSaveState("saved");
+      setToast(error instanceof AccountDiagramError ? error.message : "Transfer stopped. Your local canvases are still safe; try again when online.");
+    }
+  };
+
+  const reviewGuestTransfer = async () => {
+    if (!accountUserId) return;
+    const local = await listLocalDiagrams();
+    const documents: DiagramDocument[] = [];
+    for (const document of local) {
+      const receipt = await getGuestTransferReceipt(accountUserId, document.id);
+      if (!receipt || receipt.guestUpdatedAt !== document.updatedAt) documents.push(document);
+    }
+    if (documents.length) setTransferPrompt({ userId: accountUserId, documents });
+    else setToast("All canvases on this device have already been copied to your account.");
   };
 
   const beginImport = () => {
@@ -1044,7 +801,6 @@ function StudioContent() {
   };
 
   const nodeCount = nodes.length;
-  const activeDocumentTitle = useMemo(() => title.trim() || "Untitled flow", [title]);
 
   const commandQueryLower = commandQuery.trim().toLowerCase();
   const commandItems = [
@@ -1099,31 +855,6 @@ function StudioContent() {
   return (
     <main className="studio-shell">
       <input ref={importFileRef} type="file" accept="application/json,.json" aria-label="Choose an Archly JSON backup" hidden onChange={handleImportFile} />
-      <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark"><span /><span /><span /></div>
-          <span className="brand-name">archly</span>
-          <span className="brand-divider" />
-          <span className="product-name">Engineering canvas</span>
-        </div>
-        <div className="topbar-center">
-          <button className="diagram-title" onClick={() => setShowLibrary((open) => !open)} title="Open your canvases">
-            <span className="title-icon">⌘</span><span>{activeDocumentTitle}</span><span className="chevron">⌄</span>
-          </button>
-          {showLibrary && <div className="library-popover">
-            <div className="popover-heading"><div><strong>Your canvases</strong><small>Saved in this browser</small></div><button className="icon-button small" onClick={() => setShowLibrary(false)} aria-label="Close canvas list">×</button></div>
-            <button className="new-diagram-button" onClick={createDiagram}><span>＋</span> Create a new canvas</button>
-            <button className="import-backup-button" onClick={beginImport}><span>↑</span> Import JSON backup</button>
-            <div className="diagram-list">{diagrams.map((diagram) => <button key={diagram.id} className={`diagram-row ${diagram.id === diagramId ? "current" : ""}`} onClick={() => openDiagram(diagram.id)}><span className="diagram-row-icon">◈</span><span className="diagram-row-copy"><strong>{diagram.title || "Untitled flow"}</strong><small>{diagram.graph.nodes.length} components · Edited {new Date(diagram.updatedAt).toLocaleDateString()}</small></span>{diagram.id === diagramId && <span className="current-dot" />}</button>)}</div>
-          </div>}
-        </div>
-        <div className="topbar-actions">
-          <div className="save-indicator"><span className={`save-dot ${saveState}`} />{saveState === "saving" ? "Saving" : saveState === "error" ? "Save issue" : "All changes saved"}</div>
-          <span className="guest-pill"><span className="guest-avatar">G</span><span>Guest</span></span>
-          <button className="signin-button" onClick={() => setToast("Account sync is coming in the next phase")}>Sign in <span>↗</span></button>
-        </div>
-      </header>
-
       <div className={`workspace ${leftPanelOpen ? "has-left-panel" : "left-panel-closed"} ${rightPanelOpen ? "has-right-panel" : "right-panel-closed"}`}>
         {leftPanelOpen && <aside className="left-sidebar">
           <div className="sidebar-panel-heading"><span className="sidebar-label">BUILD</span><button className="panel-close-button" onClick={() => setLeftPanelOpen(false)} aria-label="Close components panel" title="Close components panel">‹</button></div>
@@ -1149,14 +880,29 @@ function StudioContent() {
 
         <section className="canvas-column">
           <div className="canvas-toolbar">
-            <div className="canvas-heading"><span className="breadcrumb">Workspace</span><span className="breadcrumb-slash">/</span><input aria-label="Diagram name" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} /></div>
+            <div className="canvas-heading">
+              <button className="toolbar-button icon-only library-toggle" onClick={() => setShowLibrary((open) => !open)} aria-label="Open saved canvases" title="Saved canvases">▦</button>
+              <input aria-label="Diagram name" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} />
+              {showLibrary && <div className="library-popover">
+                <div className="popover-heading"><div><strong>Your canvases</strong><small>Saved in this browser</small></div><button className="icon-button small" onClick={() => setShowLibrary(false)} aria-label="Close canvas list">×</button></div>
+                <button className="new-diagram-button" onClick={createDiagram}><span>＋</span> Create a new canvas</button>
+                <button className="import-backup-button" onClick={beginImport}><span>↑</span> Import JSON backup</button>
+                {accountUserId && diagrams.length > 0 && <button className="import-backup-button" onClick={() => void reviewGuestTransfer()}><span>☁</span> Copy this device’s canvases to account</button>}
+                {accountDiagrams.length > 0 && <><div className="diagram-section-label">ACCOUNT CANVASES</div><div className="diagram-list">{accountDiagrams.map((entry) => <button key={`account-${entry.document.id}`} className={`diagram-row ${entry.document.id === diagramId && activeSource === "account" ? "current" : ""}`} onClick={() => openAccountDiagram(entry)}><span className="diagram-row-icon">☁</span><span className="diagram-row-copy"><strong>{entry.document.title || "Untitled flow"}</strong><small>{entry.document.graph.nodes.length} components · Synced canvas</small></span>{entry.document.id === diagramId && activeSource === "account" && <span className="current-dot" />}</button>)}</div></>}
+                <div className="diagram-section-label">THIS DEVICE</div><div className="diagram-list">{diagrams.map((diagram) => <button key={`guest-${diagram.id}`} className={`diagram-row ${diagram.id === diagramId && activeSource === "guest" ? "current" : ""}`} onClick={() => openDiagram(diagram.id)}><span className="diagram-row-icon">◈</span><span className="diagram-row-copy"><strong>{diagram.title || "Untitled flow"}</strong><small>{diagram.graph.nodes.length} components · Edited {new Date(diagram.updatedAt).toLocaleDateString()}</small></span>{diagram.id === diagramId && activeSource === "guest" && <span className="current-dot" />}</button>)}</div>
+              </div>}
+            </div>
             <div className="toolbar-actions">
-              <button className={`toolbar-button icon-only panel-toggle ${leftPanelOpen ? "is-active" : ""}`} onClick={() => setLeftPanelOpen((open) => !open)} aria-label={leftPanelOpen ? "Hide components panel" : "Show components panel"} title={leftPanelOpen ? "Hide components panel" : "Show components panel"}>☷</button>
-              <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "settings" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "settings") setRightPanelOpen(false); else { setRightPanelMode("settings"); setRightPanelOpen(true); } }} aria-label="Toggle canvas settings" title="Canvas settings">⚙</button>
+              <span className="save-indicator" title="Saved in this browser"><span className={`save-dot ${saveState}`} />{saveState === "saving" ? "Saving" : saveState === "error" ? "Save issue" : "Saved"}</span>
+              {authSession.data?.user ? <>
+                <span className="account-user-label" title={authSession.data.user.email}>{authSession.data.user.name || authSession.data.user.email}</span>
+                <button className="toolbar-button icon-only" onClick={() => { void authClient.signOut(); }} aria-label="Sign out" title="Sign out">↪</button>
+              </> : <button className="account-open-button" onClick={() => setAccountDialogOpen(true)} disabled={authSession.isPending} title="Create an account or sign in">{authSession.isPending ? "…" : "Sign in"}</button>}
+              <button className="toolbar-button icon-only panel-toggle" onClick={() => { if (rightPanelOpen && rightPanelMode === "settings") setRightPanelOpen(false); else { setRightPanelMode("settings"); setRightPanelOpen(true); } }} aria-label="Toggle canvas settings" title="Canvas settings">⚙</button>
               {selectedNode && <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "inspector" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "inspector") setRightPanelOpen(false); else { setRightPanelMode("inspector"); setRightPanelOpen(true); } }} aria-label="Toggle component details" title="Component details">☰</button>}
               {selectedEdge && <button className={`toolbar-button icon-only panel-toggle ${rightPanelOpen && rightPanelMode === "edge-inspector" ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "edge-inspector") setRightPanelOpen(false); else { setRightPanelMode("edge-inspector"); setRightPanelOpen(true); } }} aria-label="Toggle connection details" title="Connection details">↔</button>}
               <button className="toolbar-button icon-only full-screen-toggle" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"} aria-pressed={isFullscreen} title="Full screen">⛶</button>
-              <button className="toolbar-button" onClick={exportDiagram}><span>↓</span> Export</button>
+              <button className="toolbar-button icon-only" onClick={exportDiagram} aria-label="Export JSON backup" title="Export JSON backup">↓</button>
               <span className="toolbar-separator" />
               <button className="toolbar-button icon-only" aria-label="Undo" title="Undo" disabled={!historyStatus.canUndo} onClick={undo}>↶</button>
               <button className="toolbar-button icon-only" aria-label="Redo" title="Redo" disabled={!historyStatus.canRedo} onClick={redo}>↷</button>
@@ -1164,6 +910,8 @@ function StudioContent() {
               <button className="toolbar-button primary" onClick={() => addNode("service")}><span>＋</span> Add component</button>
             </div>
           </div>
+          <button className={`canvas-edge-toggle canvas-left-toggle ${leftPanelOpen ? "is-active" : ""}`} onClick={() => setLeftPanelOpen((open) => !open)} aria-label={leftPanelOpen ? "Hide components panel" : "Show components panel"} title={leftPanelOpen ? "Hide components" : "Components"}><span>☷</span></button>
+          <button className={`canvas-edge-toggle canvas-right-toggle ${rightPanelOpen ? "is-active" : ""}`} onClick={() => { if (rightPanelOpen && rightPanelMode === "settings") setRightPanelOpen(false); else { setRightPanelMode("settings"); setRightPanelOpen(true); } }} aria-label={rightPanelOpen && rightPanelMode === "settings" ? "Hide canvas settings" : "Show canvas settings"} title="Canvas settings"><span>⚙</span></button>
           <div className="canvas-workspace" ref={flowRef} style={{ "--canvas-color": canvasColor } as CSSProperties} onDoubleClick={(event) => {
             const element = event.target as HTMLElement;
             if (!element.classList.contains("react-flow__pane")) return;
@@ -1299,7 +1047,7 @@ function StudioContent() {
             </div>}
             <div className="canvas-bottom-hint">Double-click the canvas to add a component <span className="hint-divider">·</span> Right-click for options <span className="hint-divider">·</span> Ctrl/⌘ K command palette <span className="hint-divider">·</span> Drag empty space to select <span className="hint-divider">·</span> Arrow keys nudge</div>
           </div>
-          <div className="canvas-statusbar"><span><span className={`save-dot ${saveState}`} />{saveState === "saved" ? "Saved locally on this device" : saveState === "saving" ? "Saving to this browser" : "Local save issue"}</span><span className="statusbar-right">Autosave on <span className="status-check">✓</span></span></div>
+          <div className="canvas-statusbar"><span><span className={`save-dot ${saveState}`} />{activeSource === "account" ? saveState === "saved" ? "Account canvas saved on this device" : saveState === "saving" ? "Syncing account canvas" : "Account sync issue · local copy kept" : saveState === "saved" ? "Saved locally on this device" : saveState === "saving" ? "Saving to this browser" : "Local save issue"}</span><span className="statusbar-right">{activeSource === "account" ? "Offline edits sync when you reconnect" : "Autosave on"} <span className="status-check">✓</span></span></div>
         </section>
 
         {rightPanelOpen && <aside className="right-sidebar">
@@ -1362,6 +1110,14 @@ function StudioContent() {
           <div className="right-footer"><span>Built for the way systems work</span><button className="footer-command" onClick={() => { setCommandQuery(""); setCommandIndex(0); setCommandOpen(true); }} title="Open command palette">⌘ K</button></div>
         </aside>}
       </div>
+      {transferPrompt && <div className="account-dialog-backdrop" role="presentation">
+        <section className="account-dialog transfer-dialog" role="dialog" aria-modal="true" aria-labelledby="transfer-dialog-title">
+          <span className="account-dialog-mark">☁</span>
+          <h2 id="transfer-dialog-title">Copy your local canvases to your account?</h2>
+          <p>{transferPrompt.documents.length} canvas{transferPrompt.documents.length === 1 ? "" : "es"} from this browser will be copied so you can open them on other devices. The local originals stay here. If an account canvas has the same id but different edits, both versions will be kept as separate canvases for you to review.</p>
+          <div className="transfer-dialog-actions"><button className="transfer-later-button" onClick={() => setTransferPrompt(null)}>Not now</button><button className="account-dialog-submit" onClick={() => void transferGuestCanvases()}>Copy {transferPrompt.documents.length} canvas{transferPrompt.documents.length === 1 ? "" : "es"}</button></div>
+        </section>
+      </div>}
       {importDialogOpen && <div className="import-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportDialogOpen(false); }}>
         <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
           <div className="import-dialog-heading"><div><span className="sidebar-label">LOCAL BACKUP</span><h2 id="import-dialog-title">Import a canvas</h2></div><button className="icon-button" onClick={() => setImportDialogOpen(false)} aria-label="Close import dialog" disabled={importBusy}>×</button></div>
@@ -1394,6 +1150,7 @@ function StudioContent() {
           </div>
         </div>
       </div>}
+      {accountDialogOpen && <AccountDialog onClose={() => setAccountDialogOpen(false)} onSuccess={() => setAccountDialogOpen(false)} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
       {saveState === "error" && <div className="storage-warning"><strong>Local saving is unavailable.</strong> Your browser may be blocking site storage. Export a JSON backup before leaving.</div>}
     </main>

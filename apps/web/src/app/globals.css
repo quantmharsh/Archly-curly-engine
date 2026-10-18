@@ -82,3 +82,70 @@ button{color:inherit;cursor:pointer}
 .command-empty{padding:16px;color:#98a2b3;font-size:11px;text-align:center}
 .footer-command{border:1px solid #e6e9ef;background:#fff;border-radius:6px;padding:3px 8px;color:#7c88a0;font-size:10px;font-weight:650}
 .footer-command:hover{background:#f6f7fa;color:#5d6f9f}
+
+/* Keep the drawing surface full-screen and float the workspace controls above it. */
+.studio-shell{height:100dvh;min-height:0}
+.workspace,.workspace.has-left-panel.right-panel-closed,.workspace.left-panel-closed.has-right-panel,.workspace.left-panel-closed.right-panel-closed,.workspace.has-left-panel.has-right-panel{position:relative;display:block;min-height:0;overflow:hidden}
+.canvas-column{position:absolute;inset:0;display:flex;height:100%;min-height:0}
+.canvas-toolbar{position:absolute;z-index:10;top:14px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 104px);height:46px;gap:14px;padding:0 10px;border:1px solid #e6eaf1;border-radius:10px;background:#ffffffed;box-shadow:0 5px 20px #24324b14;backdrop-filter:blur(12px)}
+.canvas-heading{position:relative;gap:7px;min-width:0}
+.canvas-heading input{width:170px;max-width:24vw;border:0;background:transparent;color:#48546a;font-size:12px;font-weight:650}
+.canvas-heading input:focus{outline:0}
+.library-toggle{width:30px;height:30px;flex:none}
+.library-popover{top:41px;left:0;transform:none}
+.toolbar-actions{gap:3px;flex:none}
+.toolbar-button.icon-only{display:flex;width:30px;height:30px}
+.toolbar-button.primary{height:32px;padding:0 10px;white-space:nowrap}
+.toolbar-button:not(.icon-only):not(.primary){display:flex}
+.toolbar-separator{height:20px;margin:0 2px}
+.save-indicator{padding:0 3px;font-size:9px;white-space:nowrap}
+.canvas-edge-toggle{position:absolute;z-index:7;top:50%;display:grid;place-items:center;width:34px;height:42px;padding:0;transform:translateY(-50%);border:1px solid #e3e8f0;background:#ffffffed;color:#647391;box-shadow:0 3px 14px #25334d16;backdrop-filter:blur(10px);cursor:pointer}
+.canvas-left-toggle{left:0;border-left:0;border-radius:0 9px 9px 0}
+.canvas-right-toggle{right:0;border-right:0;border-radius:9px 0 0 9px}
+.canvas-edge-toggle:hover,.canvas-edge-toggle.is-active{background:#eef2fb;color:#536ca9}
+.canvas-edge-toggle span{font-size:16px}
+.workspace .left-sidebar,.workspace .right-sidebar{position:absolute;top:0;bottom:0;z-index:8;width:min(280px,86vw);display:flex;overflow-y:auto;box-shadow:0 10px 30px #25334d20}
+.workspace .left-sidebar{left:0;padding:17px 13px 12px}
+.workspace .right-sidebar{right:0}
+.canvas-workspace{width:100%;height:100%;flex:1}
+.canvas-context{top:78px;left:18px}
+.canvas-count{top:76px;right:18px}
+@media(max-width:850px){.canvas-toolbar{gap:7px}.canvas-heading input{width:130px}.toolbar-button.primary{font-size:10px}.save-indicator{font-size:0}.save-dot{margin:0}.workspace .left-sidebar .sidebar-label,.workspace .left-sidebar .sidebar-tab>span:not(.tab-icon),.workspace .left-sidebar .palette-heading,.workspace .left-sidebar .component-copy,.workspace .left-sidebar .add-hint,.workspace .left-sidebar .sidebar-rule,.workspace .left-sidebar .local-note,.workspace .left-sidebar .sidebar-footer{display:initial}.workspace .left-sidebar .sidebar-tab{justify-content:flex-start;padding:0 10px}.workspace .left-sidebar .palette-heading{display:flex}.workspace .left-sidebar .component-card{justify-content:flex-start;padding:7px;min-height:55px}.workspace .left-sidebar .connection-card{min-height:43px}.workspace .left-sidebar .component-icon{width:32px;height:32px}.workspace .left-sidebar .component-copy{display:flex}.workspace .left-sidebar .local-note{display:flex}.workspace .left-sidebar .sidebar-footer{display:flex}.workspace .left-sidebar .sidebar-panel-heading{display:flex}}
+@media(max-width:650px){.topbar{display:none}.canvas-toolbar{top:8px;max-width:calc(100% - 76px);height:42px;gap:4px;padding:0 5px}.canvas-heading input{width:100px;max-width:25vw;font-size:10px}.toolbar-actions{gap:1px}.toolbar-button.icon-only{width:27px;height:27px}.toolbar-button.primary{width:30px;min-width:30px;padding:0;font-size:0;justify-content:center}.toolbar-button.primary span{font-size:16px}.toolbar-separator{margin:0;height:16px}.save-indicator{display:none}.workspace .left-sidebar,.workspace .right-sidebar{width:min(280px,86vw);display:flex!important;z-index:9}.workspace .left-sidebar{left:0;padding:17px 13px 12px}.workspace .right-sidebar{right:0}.canvas-edge-toggle{width:30px;height:38px}.canvas-context{top:60px;left:10px}.canvas-count{top:60px;right:10px;font-size:8px}.canvas-bottom-hint{bottom:8px;font-size:8px}.react-flow__minimap{display:none}}
+
+.account-open-button{height:30px;padding:0 10px;border:1px solid #dce3f1;border-radius:7px;background:#f6f8fc;color:#5b6f9f;font-size:10px;font-weight:650;white-space:nowrap}
+.account-open-button:hover{background:#edf1fa}
+.account-open-button:disabled{opacity:.6;cursor:wait}
+.account-user-label{max-width:120px;overflow:hidden;text-overflow:ellipsis;color:#748096;font-size:9px;white-space:nowrap}
+.account-dialog-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:18px;background:#1f2b4052;backdrop-filter:blur(4px)}
+.account-dialog{position:relative;width:min(100%,400px);padding:30px;background:#fff;border:1px solid #e7ebf2;border-radius:15px;box-shadow:0 26px 80px #14203938;color:#46536a}
+.account-dialog-close{position:absolute;top:12px;right:13px;width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:#8d97a7;font-size:21px}
+.account-dialog-close:hover{background:#f3f5f8}
+.account-dialog-mark{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:#eef2fb;color:#657bb6;font-size:18px;font-weight:750}
+.account-dialog h2{margin:18px 0 6px;color:#354157;font-size:20px;letter-spacing:-.4px}
+.account-dialog>p{margin:0 0 20px;color:#8490a2;font-size:11px;line-height:1.55}
+.account-social-options{display:grid;gap:8px}
+.account-social-options button{height:38px;display:flex;align-items:center;justify-content:center;gap:9px;border:1px solid #e1e6ee;border-radius:7px;background:#fff;color:#46536a;font-size:11px;font-weight:600}
+.account-social-options button:hover:not(:disabled){background:#f8f9fb;border-color:#cfd6e2}
+.account-social-options button:disabled{opacity:.65;cursor:wait}
+.social-google-mark{font-size:14px;font-weight:750;background:conic-gradient(from -45deg,#4285f4 0 25%,#34a853 25% 50%,#fbbc05 50% 75%,#ea4335 75%);background-clip:text;color:transparent}
+.social-github-mark{width:16px;height:16px;color:#202124}
+.account-dialog-divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:#9aa3b1;font-size:10px;white-space:nowrap}
+.account-dialog-divider::before,.account-dialog-divider::after{content:"";height:1px;flex:1;background:#edf0f4}
+.account-dialog form{display:grid;gap:12px}
+.account-dialog label{display:grid;gap:5px;color:#647188;font-size:10px;font-weight:650}
+.account-dialog label input{height:38px;padding:0 10px;border:1px solid #e1e6ee;border-radius:7px;background:#fff;color:#39465d;font:inherit;font-size:12px;outline:none}
+.account-dialog label input:focus{border-color:#8ca0ce;box-shadow:0 0 0 3px #8398c51f}
+.account-dialog-submit{height:40px;margin-top:3px;border:1px solid #5c73b2;border-radius:7px;background:#5c73b2;color:#fff;font-size:11px;font-weight:650}
+.account-dialog-submit:hover:not(:disabled){background:#4c639f}
+.account-dialog-submit:disabled{opacity:.65;cursor:wait}
+.account-dialog-error{padding:9px 10px;border:1px solid #efd5d4;border-radius:7px;background:#fff7f6;color:#a85d5b;font-size:10px;line-height:1.4}
+.account-dialog-switch{display:flex;justify-content:center;gap:5px;margin-top:17px;color:#8b96a6;font-size:10px}
+.account-dialog-switch button{padding:0;border:0;background:transparent;color:#5c73b2;font-size:10px;font-weight:650}
+.diagram-section-label{padding:12px 5px 5px;color:#a0a9b8;font-size:8px;font-weight:750;letter-spacing:1px}
+.transfer-dialog{max-width:470px}
+.transfer-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.transfer-dialog-actions .account-dialog-submit{min-width:145px;margin:0;padding:0 13px}
+.transfer-later-button{height:40px;padding:0 14px;border:1px solid #e3e7ed;border-radius:7px;background:#fff;color:#68758a;font-size:11px;font-weight:600}
+.transfer-later-button:hover{background:#f7f8fa}
+@media(max-width:520px){.account-dialog{padding:24px 20px}.account-user-label{display:none}}
