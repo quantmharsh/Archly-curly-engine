@@ -1,6 +1,6 @@
 # Archly Current Status
 
-Last inspected: 2026-10-18
+Last inspected: 2026-10-25
 
 ## Current Phase
 
@@ -97,3 +97,21 @@ Node v24.20.0 is active. PostgreSQL 17 is running through Docker Compose on host
 ## 2026-10-18 social sign-in implementation
 
 The account dialog includes Google (Gmail) and GitHub OAuth buttons. Better Auth only registers a provider when its server-side client ID and secret are configured in `apps/web/.env.local`; see `apps/web/README.md` and `.env.example` for variable names and callback URLs. Provider credentials and interactive OAuth flows remain unverified.
+## 2026-10-24 account-save duplicate fix
+
+The user reported that account edits created `(conflict copy)` canvases and guest transfer created a `(local copy)`. Source review found that every guest-transfer ID collision created a copy even when the account already held identical content; overlapping account autosaves could also race on one revision, and a retry after a committed write could be mistaken for a genuine conflict. The implementation now serializes account saves per signed-in user in the current app instance, treats content-identical retries as already saved, and reuses identical account content during transfer. TypeScript passed (exit 0); automated tests were not run and browser regression validation remains pending. Existing duplicate rows were not deleted.
+
+
+## 2026-10-24 Canvas deletion update
+
+The canvas library now provides delete actions for account and this-device canvases. Both require typing DELETE. Device deletion removes the local IndexedDB document; account deletion calls the authenticated hard-delete API and clears the account cache and queued sync entry. The app has no trash/restore feature. Separate copies and exported backups are independent. Account saves and queued offline sync share a per-account serialization queue with deletion to avoid recreating the record. TypeScript no-emit passed (exit 0); automated tests and browser QA were not run. Next: manually verify both deletion paths, confirmation gating, list removal, and persistence after refresh.
+
+## 2026-10-25 Autosave deletion-guard fix
+
+Deletion suppression is now scoped by storage source and account user, so deleting a guest or account copy does not suppress saves for a surviving same-ID copy in another scope. A skipped pending save also settles the header save state instead of leaving it at Saving. TypeScript no-emit passed (exit 0); automated tests and browser QA were not run. Reload the app and manually verify guest/account edits save, including same-ID cross-scope copies.
+## 2026-10-25 Saved-canvas list overflow fix
+
+The canvas library popover now stays within the viewport and scrolls as a whole, rather than allowing long account/device lists to overflow the popover. Automated tests and browser visual review were not run.
+## 2026-10-25 Cross-device last-open canvas restore
+
+Signed-in users' last-open account canvas is persisted in PostgreSQL via the authenticated `/api/account/last-open-diagram` route and `accountPreference` table. Guest last-open state remains browser-local. Account startup restores the server preference (with local-per-user and latest-account fallbacks) even if this device has guest canvases awaiting transfer. Deleting the preferred canvas clears the preference. The Drizzle migration was generated and applied locally; TypeScript no-emit passed. Interactive browser verification remains pending; automated tests were not run.

@@ -53,6 +53,13 @@ export async function saveLocalDiagram(document: DiagramDocument) {
   await localDb.diagrams.put(validated);
 }
 
+export async function deleteLocalDiagram(diagramId: string) {
+  await localDb.transaction("rw", [localDb.diagrams, localDb.guestTransfers], async () => {
+    await localDb.diagrams.delete(diagramId);
+    await localDb.guestTransfers.where("diagramId").equals(diagramId).delete();
+  });
+}
+
 export async function listLocalDiagrams() {
   return localDb.diagrams.orderBy("updatedAt").reverse().toArray();
 }
@@ -75,6 +82,14 @@ export async function saveAccountDiagramCache(entry: Omit<AccountDiagramCache, "
 
 export async function getAccountDiagramCache(userId: string, diagramId: string) {
   return localDb.accountDiagrams.get(accountDiagramKey(userId, diagramId));
+}
+
+export async function deleteAccountDiagramCache(userId: string, diagramId: string) {
+  const key = accountDiagramKey(userId, diagramId);
+  await localDb.transaction("rw", [localDb.accountDiagrams, localDb.syncQueue], async () => {
+    await localDb.accountDiagrams.delete(key);
+    await localDb.syncQueue.delete(key);
+  });
 }
 
 export async function queueDiagramSync(entry: Omit<PendingDiagramSync, "key">) {
@@ -116,5 +131,21 @@ export function saveLastOpenDiagramId(id: string) {
     window.localStorage.setItem(LAST_OPEN_DIAGRAM_KEY, id);
   } catch {
     // Storage can be blocked or full; resuming the last canvas is best-effort.
+  }
+}
+
+export function readLastOpenAccountDiagramId(userId: string) {
+  try {
+    return window.localStorage.getItem(`archly-account:last-open-diagram:${userId}`) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveLastOpenAccountDiagramId(userId: string, id: string) {
+  try {
+    window.localStorage.setItem(`archly-account:last-open-diagram:${userId}`, id);
+  } catch {
+    // The server preference remains authoritative when local storage is unavailable.
   }
 }

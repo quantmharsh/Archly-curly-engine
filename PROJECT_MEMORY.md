@@ -195,3 +195,12 @@ The original startup path violated that rule. It re-saved the seed document over
 The approved account foundation uses Better Auth email/password, PostgreSQL with Drizzle, and Next.js route handlers. Guest diagrams are offered for transfer after sign-in; transfer copies all guest canvases and retains their local originals. Signed-in diagrams are cached locally, offline edits queue for sync, and optimistic revision conflicts preserve both edits as separate diagrams for review. Hosting remains undecided. Email verification/reset delivery and durable version-history/checkpoint rules remain open. Current implementation is in progress and must not be represented as production-ready until database and browser verification and remaining Phase 1B criteria are complete.
 
 Social sign-in is scoped to optional Google (including Gmail accounts) and GitHub when their server-side credentials are configured. OAuth provider setup and interactive flows remain pending verification.
+
+
+## 2026-10-24: Permanent canvas deletion
+
+Canvas deletion is an explicit destructive action: the user must type the exact word DELETE before it is enabled. Account canvases are hard-deleted from PostgreSQL and removed from the signed-in user's local cache and sync queue; device canvases are removed from local IndexedDB. Archly provides no trash or in-app restore path. Separate copies on other devices and user-exported JSON backups are independent copies and are not deleted by this action. Account saves and queued offline sync are serialized with deletion to avoid stale writes recreating an account record. Manual browser QA remains pending; automated tests remain prohibited until user authorization.
+
+## 2026-10-25: Resume the last account canvas across devices
+
+Guest last-open state remains browser-local. Signed-in account users have a separate last-open canvas preference stored in PostgreSQL and exposed through the authenticated account preference route. Selecting an account canvas updates the local per-user fallback and the server preference. On login or refresh, the app restores that account canvas even when local guest canvases are pending transfer. If the server preference is unavailable or points to a missing canvas, the app falls back to a matching local preference and then the most recently updated account canvas. The account preference is cleared when its canvas is deleted.

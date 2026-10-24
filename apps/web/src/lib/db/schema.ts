@@ -59,3 +59,9 @@ export const diagram = pgTable("diagram", {
   uniqueIndex("diagram_user_document_idx").on(table.userId, table.id),
   index("diagram_user_updated_idx").on(table.userId, table.updatedAt),
 ]);
+
+export const accountPreference = pgTable("accountPreference", {
+  userId: text("userId").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  lastOpenDiagramId: text("lastOpenDiagramId"),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { diagram } from "@/lib/db/schema";
+import { accountPreference, diagram } from "@/lib/db/schema";
 import { diagramDocumentSchema } from "@/lib/graph-schema";
 
 export const runtime = "nodejs";
@@ -32,6 +32,9 @@ export async function PUT(request: Request, context: RouteContext) {
     const current = await db.select({ document: diagram.document, revision: diagram.revision }).from(diagram)
       .where(and(eq(diagram.userId, userId), eq(diagram.id, id))).limit(1);
     if (!current[0]) return NextResponse.json({ error: "Canvas not found." }, { status: 404 });
+    if (JSON.stringify(current[0].document) === JSON.stringify(parsed.data)) {
+      return NextResponse.json({ revision: current[0].revision });
+    }
     return NextResponse.json({ error: "This canvas changed on another device.", current: current[0] }, { status: 409 });
   } catch {
     return NextResponse.json({ error: "The canvas could not be saved." }, { status: 503 });
@@ -43,6 +46,8 @@ export async function DELETE(request: Request, context: RouteContext) {
     const userId = await userIdFor(request);
     if (!userId) return NextResponse.json({ error: "Sign in to delete account canvases." }, { status: 401 });
     const { id } = await context.params;
+    await db.update(accountPreference).set({ lastOpenDiagramId: null, updatedAt: new Date() })
+      .where(and(eq(accountPreference.userId, userId), eq(accountPreference.lastOpenDiagramId, id)));
     await db.delete(diagram).where(and(eq(diagram.userId, userId), eq(diagram.id, id)));
     return new NextResponse(null, { status: 204 });
   } catch {

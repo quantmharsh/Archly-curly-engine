@@ -2,7 +2,7 @@
 
 ## Handoff Date
 
-2026-10-18
+2026-10-25
 
 ## Previous Agent
 
@@ -14,27 +14,20 @@ Phase 1A guest canvas remains in progress; Phase 1B account/sync foundation is n
 
 ## What Was Done In This Session
 
-- Inspected repository guidance, available project docs, source structure, schemas, persistence layer, app entry points, QA checklists, package scripts, Git state, and recent commits.
-- Reconciled this handoff, `docs/current-status.md`, and the Phase 1A next-step note in `PHASE_PLAN.md` against the current source. No application code or architectural decisions changed.
-- No feature implementation was performed.
-
+- Added permanent account and device canvas deletion with typed DELETE confirmation.
+- Fixed the autosave regression caused by deletion suppression sharing one ID namespace across guest and account copies. Deletion guards now use storage-scoped keys, and guarded account saves settle the save indicator.
+- Account save and offline queue flush operations remain serialized with account deletion to prevent stale writes from recreating a deleted account canvas.
 ## What Was Verified
 
-- `git -c safe.directory=C:/Users/virat/OneDrive/projects/Archly status --short --untracked-files=all` — clean at inspection. Recent `main` HEAD is `cb1a5da` (`feat: enhance canvas interactions with command palette and context menus`); prior commits include edge editing/import and waypoint support.
-- `node node_modules/typescript/bin/tsc --noEmit` from `apps/web` — PASS (exit 0).
-- `npm run lint` — started, then interrupted before a result was established; no pass is claimed.
-- `npm test` — failed before Vitest launched with Node `EPERM` resolving `C:\Users\virat`. The user has since instructed that no tests be run until they say otherwise.
-- `npm run build` — failed before Next.js launched with the same Node `EPERM` path-resolution error.
-- No browser interaction, app-start check, Docker check, or successful production build was performed.
-
+- `node node_modules/typescript/bin/tsc --noEmit` from `apps/web` passed (exit 0).
+- Automated tests were not run, per the standing user instruction.
+- Browser QA was not performed; manual save and deletion verification remains pending.
 ## Current Working State
 
-The working tree was clean when inspected; this assessment changed only `docs/current-status.md`, `docs/agent-handoff.md`, and `PHASE_PLAN.md`. The repository contains one Next.js client canvas app in `apps/web`, Zod graph/document validation, and Dexie/IndexedDB guest persistence. `docs/decisions.md` was left unchanged because no new architectural/product decision was made. Project decisions remain in `PROJECT_MEMORY.md` and `docs/decisions.md`.
-
+The working tree contains canvas deletion, the autosave guard fix, prior account-save duplicate-fix work, and related documentation updates. Preserve these changes. Guest canvases use IndexedDB; account canvases use PostgreSQL with a local cache and offline queue. Deletion requires typing DELETE and has no Archly trash/restore path. Autosave suppression is storage-scoped so a guest/account copy with the same ID does not block the other copy.
 ## Next Recommended Task
 
-Have the user/testing agent review the Phase 1A interaction QA checklists (`apps/web/docs/canvas-editing-testing-checklist.md` and `docs/canvas-ui-testing-checklist.md`), especially the recent connection editor, import/recovery, and direct-use interactions, and report concrete browser outcomes. Do not run automated tests until the user authorizes it. After QA, agree with the user on remaining Phase 1A acceptance gaps before considering Phase 1B.
-
+Manually verify that the account's last-open canvas restores after refresh and login in a second browser/device. Include a user with an existing account preference and local guest canvases awaiting transfer, and check that the transfer prompt does not replace the restored account canvas. Also verify deleting the preferred account canvas falls back to another account canvas. Then recheck account autosave and the long saved-canvas list. Do not run automated tests until the user authorizes them.
 ## Important Context For Next Agent
 
 - Guest diagrams live only in the current browser profile's IndexedDB database `archly-guest-canvas`; this is not cloud or cross-device sync.
@@ -77,3 +70,14 @@ Phase 1B account/sync foundation is in progress in apps/web. Read its README and
 ## 2026-10-18 continuation status
 
 Node v24.20.0 is active. Docker PostgreSQL 17 is healthy on host port 5433 because a Windows PostgreSQL process already owns 5432; that existing service was not modified. Drizzle migration applied successfully and the five auth/diagram tables were confirmed. TypeScript passed; HTTP checks returned page 200, no-session 200/null, and unauthenticated diagram API 401. Automated tests were not run. Browser sign-up/sign-in and sync validation remain pending; the user must enter credentials. Next, manually verify guest transfer, account persistence, and offline/conflict behavior, then decide durable version history.
+## 2026-10-25 account-save regression status
+
+The user has manually confirmed Google login, guest-canvas transfer, and account-canvas access in Brave. They then reported account edits creating local/conflict copies. A code fix now reuses identical guest-transfer content, serializes account saves in one app instance, and treats identical-content retries as successful. `tsc --noEmit` passed; no tests were run. The next check is successive edits followed by a refresh in the other browser, confirming no new duplicate rows. Existing duplicates remain for user review.
+
+## 2026-10-25 autosave regression fix
+
+The deletion guard originally keyed only by canvas ID. Since a transferred guest canvas and account canvas can share an ID, deleting either copy could suppress autosave for the other and leave the header on Saving. The guard now keys by storage scope and account user, and skipped saves settle their status. TypeScript passed (exit 0); no tests or browser QA were run. Next: reload the app and manually verify edits persist in guest and account canvases, especially after deleting a same-ID copy in the other scope. Do not run automated tests until the user authorizes them.
+The saved-canvas popover now uses one viewport-bounded scroll area. Include a long account/device canvas list in the next visual browser review.
+## 2026-10-25 Cross-device canvas restore
+
+Account last-open state now persists per user in PostgreSQL; guest state remains browser-local. Migration `0001_normal_stryfe.sql` was generated and applied to the local Docker PostgreSQL database. `node node_modules/typescript/bin/tsc --noEmit` passed. No automated tests or browser interaction checks were run. Next: verify refresh/login restoration on the same and a second browser/device, including a pending guest-transfer prompt and deleting the preferred account canvas.

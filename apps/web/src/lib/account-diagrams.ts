@@ -3,6 +3,28 @@ import { listQueuedDiagramSync, removeQueuedDiagramSync, saveAccountDiagramCache
 
 export type VersionedDiagram = { document: DiagramDocument; revision: number };
 
+export function sameDiagramGraph(left: DiagramDocument, right: DiagramDocument) {
+  return left.id === right.id && JSON.stringify(left.graph) === JSON.stringify(right.graph);
+}
+
+export function sameDiagramContent(left: DiagramDocument, right: DiagramDocument) {
+  return left.title === right.title && sameDiagramGraph(left, right);
+}
+
+const diagramWriteQueues = new Map<string, Promise<void>>();
+
+export async function serializeDiagramWrite<T>(key: string, save: () => Promise<T>) {
+  const previous = diagramWriteQueues.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(save);
+  const settled = current.then(() => undefined, () => undefined);
+  diagramWriteQueues.set(key, settled);
+  try {
+    return await current;
+  } finally {
+    if (diagramWriteQueues.get(key) === settled) diagramWriteQueues.delete(key);
+  }
+}
+
 export class AccountDiagramError extends Error {
   constructor(message: string, readonly status: number, readonly current?: VersionedDiagram) {
     super(message);
@@ -26,6 +48,15 @@ export async function listAccountDiagrams() {
   return result.diagrams;
 }
 
+export async function getLastOpenAccountDiagramId() {
+  const result = await request<{ diagramId: string | null }>("/api/account/last-open-diagram", { method: "GET", cache: "no-store" });
+  return result.diagramId ?? undefined;
+}
+
+export async function setLastOpenAccountDiagramId(diagramId: string) {
+  await request<void>("/api/account/last-open-diagram", { method: "PUT", body: JSON.stringify({ diagramId }) });
+}
+
 export async function createAccountDiagram(document: DiagramDocument) {
   return request<{ revision: number; alreadySaved: boolean }>("/api/diagrams", { method: "POST", body: JSON.stringify(document) });
 }
@@ -35,6 +66,10 @@ export async function updateAccountDiagram(document: DiagramDocument, expectedRe
     method: "PUT",
     body: JSON.stringify({ document, expectedRevision }),
   });
+}
+
+export async function deleteAccountDiagram(diagramId: string) {
+  await request<void>(`/api/diagrams/${encodeURIComponent(diagramId)}`, { method: "DELETE" });
 }
 
 export async function flushQueuedAccountDiagrams(userId: string, skipDiagramId?: string) {
@@ -52,13 +87,17 @@ export async function flushQueuedAccountDiagrams(userId: string, skipDiagramId?:
         if (error instanceof AccountDiagramError && error.status === 404) {
           revision = (await createAccountDiagram(item.document)).revision;
         } else if (error instanceof AccountDiagramError && error.status === 409) {
-          const conflictDocument = { ...item.document, id: crypto.randomUUID(), title: `${item.document.title} (conflict copy)`, updatedAt: Date.now() };
-          revision = (await createAccountDiagram(conflictDocument)).revision;
-          conflicts.push({ document: conflictDocument, revision });
-          await saveAccountDiagramCache({ userId, diagramId: conflictDocument.id, document: conflictDocument, revision, updatedAt: conflictDocument.updatedAt, dirty: false });
-          if (error.current) await saveAccountDiagramCache({ userId, diagramId: item.diagramId, document: error.current.document, revision: error.current.revision, updatedAt: error.current.document.updatedAt, dirty: false });
-          await removeQueuedDiagramSync(userId, item.diagramId);
-          continue;
+          if (error.current && sameDiagramContent(error.current.document, item.document)) {
+            revision = error.current.revision;
+          } else {
+            const conflictDocument = { ...item.document, id: crypto.randomUUID(), title: `${item.document.title} (conflict copy)`, updatedAt: Date.now() };
+            revision = (await createAccountDiagram(conflictDocument)).revision;
+            conflicts.push({ document: conflictDocument, revision });
+            await saveAccountDiagramCache({ userId, diagramId: conflictDocument.id, document: conflictDocument, revision, updatedAt: conflictDocument.updatedAt, dirty: false });
+            if (error.current) await saveAccountDiagramCache({ userId, diagramId: item.diagramId, document: error.current.document, revision: error.current.revision, updatedAt: error.current.document.updatedAt, dirty: false });
+            await removeQueuedDiagramSync(userId, item.diagramId);
+            continue;
+          }
         } else {
           continue;
         }

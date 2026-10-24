@@ -221,3 +221,32 @@ This does not settle hosting, email delivery for verification/password reset, or
 ### 2026-10-18: Focus social sign-in on Google and GitHub
 
 Better Auth supports optional Google (including Gmail accounts) and GitHub OAuth alongside email/password. Each provider is enabled only when both server-side credentials are present. Apple sign-in is deferred to avoid adding its provider-specific setup now. Provider registration, production secrets, and interactive OAuth verification remain setup/QA work.
+
+
+## 2026-10-24: Require deliberate confirmation for permanent canvas deletion
+
+### Status
+
+Accepted
+
+### Decision
+
+Expose deletion in the saved-canvas list, but require the user to type DELETE before enabling the final action. Hard-delete account canvases from the account store and delete device canvases from IndexedDB. Do not provide an Archly trash or restore workflow. Explain that other-device copies and exported JSON backups are separate copies.
+
+### Consequences
+
+Account autosaves and queued offline sync must serialize with deletion so pending writes cannot recreate a deleted account canvas. Removing a local canvas does not remove its separate account counterpart, and removing an account canvas does not remove guest copies. The user can manually import a separately retained JSON backup as a new canvas.
+
+## 2026-10-25: Store the last-open account canvas per user
+
+### Status
+
+Accepted and implemented
+
+### Decision
+
+Keep guest last-open state in browser storage, and persist signed-in users' last-open account canvas ID in PostgreSQL. Authenticate preference reads/writes and verify that the selected canvas belongs to the user. Restore the account preference on login/refresh and clear it if that canvas is deleted. A local per-user account pointer and most-recently-updated account canvas provide fallbacks.
+
+### Reason
+
+A browser-local pointer cannot resume the same account canvas on another device. Device-local guest documents should remain independent, but pending guest-transfer prompts should not prevent restoring an existing account canvas.

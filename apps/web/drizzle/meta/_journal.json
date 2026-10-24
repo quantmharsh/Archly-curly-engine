@@ -8,6 +8,13 @@
       "when": 1792237401337,
       "tag": "0000_sparkling_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792873048358,
+      "tag": "0001_normal_stryfe",
+      "breakpoints": true
     }
   ]
 }

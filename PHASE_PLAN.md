@@ -1,6 +1,6 @@
 # AI Engineering Canvas - Phase Plan
 
-Last updated: 2026-10-18
+Last updated: 2026-10-25
 Overall status: Phase 1A guest-canvas work remains in progress; Phase 1B account and sync foundation is now in progress.
 
 ## Tracking rules
@@ -179,7 +179,7 @@ See the rationale and current official documentation references in `PROJECT_MEMO
 
 Phase 1A source is in `apps/web`; the current code includes the canvas, browser-local persistence, JSON backup import/export, connection editing, and direct-use interactions described in `docs/current-status.md`. The app now remembers the last open canvas in browser-local storage and restores it on return, falling back to the most recently updated canvas and only then to the seeded starter diagram. A pre-existing startup bug that overwrote an existing canvas with the default seed on every dev-mode page load was removed. TypeScript passed in the 2026-10-05 handoff assessment and again on 2026-10-08. Vitest coverage exists for graph validation and Dexie persistence, but tests, lint, and production build were not successfully verified in that assessment; the user has instructed the agent not to run tests until further notice. The user previously confirmed a manual canvas review on 2026-10-03 and multi-selection/group movement/copy-paste/undo and JSON import behavior on 2026-10-04. The latest edge editor, direct-use, and last-open-canvas restore changes still need focused browser QA. Next.js Route Handlers and Docker Compose for local PostgreSQL are now present in Phase 1B.
 
-Next step: manually verify sign-up/sign-in, session persistence, guest transfer, account diagrams, and offline/conflict behavior in the browser. The PostgreSQL migration is applied locally. The user must enter account credentials; do not run automated tests until explicitly authorized. Then resolve runtime issues and define durable diagram version-history policy.
+Next step: manually verify account and device canvas deletion, including the typed DELETE gate, list removal, and confirming deleted content is absent after refresh. Then validate the account-save duplicate fix in the user browser. Continue Phase 1A interaction QA; do not run automated tests until explicitly authorized.
 
 ## Change log
 
@@ -224,3 +224,11 @@ The user approved email/password authentication with Better Auth, PostgreSQL and
 - 2026-10-18: Local PostgreSQL setup now runs on host port 5433 to avoid the existing Windows PostgreSQL service on 5432. Node 24.20.0 installed; app-local ignored env config created without changing the root .env. Drizzle migration applied and five expected tables confirmed. HTTP page/session/protected-route checks and TypeScript passed; automated tests were not run. Interactive auth and sync browser QA remain pending.
 - 2026-10-18: Added optional Google, Apple, and GitHub sign-in to the Phase 1B account dialog and Better Auth configuration. Credentials are server-side environment variables; provider app registration and interactive OAuth verification remain pending. Apple requires an HTTPS callback and its client-secret JWT must be renewed. No automated tests were run.
 - 2026-10-18: Narrowed social sign-in scope to Google (including Gmail accounts) and GitHub per the user's direction. Removed Apple from the account dialog, Better Auth configuration, and setup docs. Provider credentials and interactive OAuth verification remain pending; automated tests were not run.
+- 2026-10-24: Fixed account-save duplicate creation by serializing writes in the current app session, treating content-identical retries/conflicts as successful saves, and reusing identical account canvases during guest transfer instead of creating a local copy. TypeScript passes; automated tests were not run. User browser regression check remains pending.
+
+
+- 2026-10-24: Added permanent canvas deletion for account and device canvases. Each deletion requires typing DELETE; account deletes remove the server record, local cache, and queued sync entry, and serialize against autosave and offline queue flushing so stale saves do not recreate the record. No Archly trash/restore feature is provided. TypeScript passed; automated tests were not run. Manual browser verification is pending.
+
+- 2026-10-25: Fixed an autosave regression after canvas deletion. Deletion guards now distinguish guest storage from each signed-in account, because transferred copies can share an ID; a rejected pending save also settles the save indicator instead of leaving it on Saving. TypeScript passed. Automated tests and browser verification were not run. Next: reload and manually verify edits save for both guest and account canvases, including when a same-ID copy in the other storage scope was deleted.
+- 2026-10-25: Fixed the saved-canvas popover overflowing its bounds when many canvases are listed. The popover is constrained to the viewport and scrolls as a single list. No automated tests were run; visual browser verification remains pending.
+- 2026-10-25: Added per-account last-open canvas persistence. Account selection now restores across refreshes and devices, and guest transfer prompts no longer prevent resuming an existing account canvas. Added and applied the accountPreference migration. TypeScript passed; interactive browser verification remains pending and automated tests were not run.
