@@ -154,6 +154,7 @@ button{color:inherit;cursor:pointer}
 .diagram-row-item:hover,.diagram-row-item:focus-within{background:#f7f8fb}
 .diagram-row-item .diagram-row{min-width:0;flex:1}
 .diagram-row-delete{width:27px;height:27px;flex:none;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:#a0a8b5;opacity:.55}
+.canvas-sync-status.synced{color:#5b9877}.canvas-sync-status.pending{color:#a57d32}.canvas-sync-status.issue{color:#b65d5a}
 .diagram-row-delete:hover{background:#fff0ef;color:#b54d4a;opacity:1}
 .diagram-row-delete svg{width:13px;height:13px}
 .delete-dialog-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:#1f2b406b;backdrop-filter:blur(4px)}

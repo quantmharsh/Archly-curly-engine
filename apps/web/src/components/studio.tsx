@@ -19,7 +19,7 @@ import {
   type Connection,
 } from "@xyflow/react";
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import { deleteAccountDiagramCache, deleteLocalDiagram, getAccountDiagramCache, getGuestTransferReceipt, listAccountDiagramCache, listLocalDiagrams, queueDiagramSync, readLastOpenAccountDiagramId, readLastOpenDiagramId, readLocalDiagram, removeQueuedDiagramSync, saveAccountDiagramCache, saveGuestTransferReceipt, saveLastOpenAccountDiagramId, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
+import { clearGuestTransferPromptDismissal, deleteAccountDiagramCache, deleteLocalDiagram, getAccountDiagramCache, getGuestTransferPromptDismissal, getGuestTransferReceipt, listAccountDiagramCache, listLocalDiagrams, listQueuedDiagramSync, queueDiagramSync, readLastOpenAccountDiagramId, readLastOpenDiagramId, readLocalDiagram, removeQueuedDiagramSync, saveAccountDiagramCache, saveGuestTransferPromptDismissal, saveGuestTransferReceipt, saveLastOpenAccountDiagramId, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
 import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema";
 import { AccountDiagramError, createAccountDiagram, deleteAccountDiagram, flushQueuedAccountDiagrams, getLastOpenAccountDiagramId, listAccountDiagrams, sameDiagramContent, sameDiagramGraph, serializeDiagramWrite, setLastOpenAccountDiagramId, updateAccountDiagram, type VersionedDiagram } from "@/lib/account-diagrams";
 import {
@@ -53,6 +53,7 @@ import { authClient } from "@/lib/auth-client";
 
 const deletionKey = (scope: "account" | "device", id: string, userId?: string | null) =>
   scope === "account" ? `account:${userId}:${id}` : `guest:${id}`;
+type AccountSyncStatus = "synced" | "pending" | "issue";
 
 function StudioContent() {
   const { screenToFlowPosition, fitView, fitBounds, getNodesBounds, setViewport: setFlowViewport, getViewport, zoomIn, zoomOut } = useReactFlow<FlowNode, FlowEdge>();
@@ -79,6 +80,7 @@ function StudioContent() {
   const [showLibrary, setShowLibrary] = useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [accountDiagrams, setAccountDiagrams] = useState<VersionedDiagram[]>([]);
+  const [accountSyncStatuses, setAccountSyncStatuses] = useState<Record<string, AccountSyncStatus>>({});
   const [transferPrompt, setTransferPrompt] = useState<{ userId: string; documents: DiagramDocument[] } | null>(null);
   const [activeSource, setActiveSource] = useState<"guest" | "account">("guest");
   const [activeAccountUserId, setActiveAccountUserId] = useState<string | null>(null);
@@ -302,10 +304,12 @@ function StudioContent() {
     if (authSession.isPending) return;
     if (!accountUserId) {
       setAccountDiagrams([]);
+      setAccountSyncStatuses({});
       setTransferPrompt(null);
       return;
     }
 
+    setAccountSyncStatuses({});
     let active = true;
     void (async () => {
       try {
@@ -313,7 +317,10 @@ function StudioContent() {
         const documentsToOffer: DiagramDocument[] = [];
         for (const document of guestDocuments) {
           const receipt = await getGuestTransferReceipt(accountUserId, document.id);
-          if (!receipt || receipt.guestUpdatedAt !== document.updatedAt) documentsToOffer.push(document);
+          if (!receipt || receipt.guestUpdatedAt !== document.updatedAt) {
+            const dismissedAt = getGuestTransferPromptDismissal(accountUserId, document.id);
+            if (dismissedAt !== document.updatedAt) documentsToOffer.push(document);
+          }
         }
 
         let remote: VersionedDiagram[];
@@ -335,6 +342,8 @@ function StudioContent() {
           remote = cached.map(({ document, revision }) => ({ document, revision }));
         }
         const cachedRows = await listAccountDiagramCache(accountUserId);
+        const queuedRows = await listQueuedDiagramSync(accountUserId);
+        const queuedIds = new Set(queuedRows.map((entry) => entry.diagramId));
         const combined = new Map(remote.map((entry) => [entry.document.id, entry]));
         for (const cached of cachedRows) {
           if (cached.dirty) combined.set(cached.diagramId, { document: cached.document, revision: cached.revision });
@@ -343,6 +352,11 @@ function StudioContent() {
 
         if (!active) return;
         setAccountDiagrams(remote);
+        setAccountSyncStatuses(Object.fromEntries(remote.map((entry) => {
+          const cache = cachedRows.find((row) => row.diagramId === entry.document.id);
+          const hasPendingWork = Boolean(cache?.dirty || queuedIds.has(entry.document.id));
+          return [entry.document.id, hasPendingWork ? navigator.onLine ? "issue" : "pending" : "synced"];
+        })));
         if (documentsToOffer.length) setTransferPrompt({ userId: accountUserId, documents: documentsToOffer });
         if (remote.length) {
           let accountRememberedId: string | undefined;
@@ -379,12 +393,23 @@ function StudioContent() {
       setAccountSyncTick((tick) => tick + 1);
       void serializeDiagramWrite(`account:${accountUserId}`, () => flushQueuedAccountDiagrams(accountUserId, diagramId)).then(async (conflicts) => {
         const remote = await listAccountDiagrams();
-        setAccountDiagrams(remote);
+        const cachedRows = await listAccountDiagramCache(accountUserId);
+        const queuedRows = await listQueuedDiagramSync(accountUserId);
+        const queuedIds = new Set(queuedRows.map((entry) => entry.diagramId));
+        const combined = new Map(remote.map((entry) => [entry.document.id, entry]));
+        for (const cached of cachedRows) if (cached.dirty) combined.set(cached.diagramId, { document: cached.document, revision: cached.revision });
+        const refreshed = [...combined.values()].sort((a, b) => b.document.updatedAt - a.document.updatedAt);
+        setAccountDiagrams(refreshed);
         void setLastOpenAccountDiagramId(diagramId).catch(() => undefined);
         for (const entry of remote) {
           const cached = await getAccountDiagramCache(accountUserId, entry.document.id);
           if (!cached?.dirty) await saveAccountDiagramCache({ userId: accountUserId, diagramId: entry.document.id, document: entry.document, revision: entry.revision, updatedAt: entry.document.updatedAt, dirty: false });
         }
+        setAccountSyncStatuses(Object.fromEntries(refreshed.map((entry) => {
+          const cache = cachedRows.find((row) => row.diagramId === entry.document.id);
+          const hasPendingWork = Boolean(cache?.dirty || queuedIds.has(entry.document.id));
+          return [entry.document.id, hasPendingWork ? navigator.onLine ? "issue" : "pending" : "synced"];
+        })));
         if (conflicts.length) setToast("Offline edits were synced as conflict copies. Review both versions in your account canvases.");
       }).catch(() => setToast("Some account canvases are still waiting to sync."));
     };
@@ -433,9 +458,15 @@ function StudioContent() {
             const cached = await getAccountDiagramCache(activeAccountUserId, targetDiagramId);
             if (targetDiagramId !== diagramId && cached) document.title = cached.document.title;
             document.createdAt = cached?.document.createdAt ?? document.createdAt;
+            if (cached && !cached.dirty && sameDiagramContent(cached.document, document)) {
+              setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "synced" }));
+              setSaveState("saved");
+              return;
+            }
             const expectedRevision = cached?.revision ?? activeRevisionRef.current;
             await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId: targetDiagramId, document, revision: expectedRevision, updatedAt: document.updatedAt, dirty: true });
             await queueDiagramSync({ userId: activeAccountUserId, diagramId: targetDiagramId, document, expectedRevision, updatedAt: document.updatedAt });
+            setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "pending" }));
             try {
               const result = expectedRevision > 0
                 ? await updateAccountDiagram(document, expectedRevision)
@@ -444,6 +475,7 @@ function StudioContent() {
               await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId: targetDiagramId, document, revision: result.revision, updatedAt: document.updatedAt, dirty: false });
               await removeQueuedDiagramSync(activeAccountUserId, targetDiagramId);
               setAccountDiagrams((current) => [{ document, revision: result.revision }, ...current.filter((entry) => entry.document.id !== targetDiagramId)]);
+              setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "synced" }));
               saveLastOpenAccountDiagramId(activeAccountUserId, targetDiagramId);
               void setLastOpenAccountDiagramId(targetDiagramId).catch(() => undefined);
               setSaveState("saved");
@@ -454,6 +486,7 @@ function StudioContent() {
                   await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId: targetDiagramId, document: error.current.document, revision: error.current.revision, updatedAt: error.current.document.updatedAt, dirty: false });
                   await removeQueuedDiagramSync(activeAccountUserId, targetDiagramId);
                   setAccountDiagrams((current) => [{ document: error.current!.document, revision: error.current!.revision }, ...current.filter((entry) => entry.document.id !== targetDiagramId)]);
+                  setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "synced" }));
                   setSaveState("saved");
                   return;
                 }
@@ -468,6 +501,7 @@ function StudioContent() {
                   }
                   accountSaveRedirectRef.current.set(targetDiagramId, conflictCopy.id);
                   if (error.current) setAccountDiagrams((current) => [{ ...error.current!, revision: error.current!.revision }, { document: conflictCopy, revision: savedCopy.revision }, ...current.filter((entry) => entry.document.id !== targetDiagramId)]);
+                  setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "synced", [conflictCopy.id]: "synced" }));
                   setDiagramId(conflictCopy.id);
                   setTitle(conflictCopy.title);
                   activeRevisionRef.current = savedCopy.revision;
@@ -476,10 +510,13 @@ function StudioContent() {
                   setToast("Both edits were kept. Review the conflict copy in your account canvases.");
                   setSaveState("saved");
                 } catch {
+                  setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: "issue" }));
                   setSaveState("saved");
                   setToast("A sync conflict needs attention. Your edited canvas is still saved on this device.");
                 }
               } else {
+                const offline = !navigator.onLine || error instanceof AccountDiagramError && error.status === 0;
+                setAccountSyncStatuses((current) => ({ ...current, [targetDiagramId]: offline ? "pending" : "issue" }));
                 setSaveState("saved");
               }
             }
@@ -491,6 +528,10 @@ function StudioContent() {
           }
           const previous = await readLocalDiagram(diagramId);
           document.createdAt = previous?.createdAt ?? document.createdAt;
+          if (previous && sameDiagramContent(previous, document)) {
+            setSaveState("saved");
+            return;
+          }
           await serializeDiagramWrite(`guest:${diagramId}`, async () => {
             if (!deletingDiagramIdsRef.current.has(deletionKey("device", diagramId))) await saveLocalDiagram(document);
           });
@@ -498,6 +539,7 @@ function StudioContent() {
           setSaveState("saved");
         }
       } catch {
+        if (activeSource === "account" && diagramId) setAccountSyncStatuses((current) => ({ ...current, [diagramId]: navigator.onLine ? "issue" : "pending" }));
         setSaveState("error");
       }
     }, 450);
@@ -655,7 +697,9 @@ function StudioContent() {
         await saveAccountDiagramCache({ userId: accountUserId, diagramId: id, document: next, revision: saved.revision, updatedAt: next.updatedAt, dirty: false });
         await removeQueuedDiagramSync(accountUserId, id);
         setAccountDiagrams((current) => [{ document: next, revision: saved.revision }, ...current]);
+        setAccountSyncStatuses((current) => ({ ...current, [id]: "synced" }));
       } catch {
+        setAccountSyncStatuses((current) => ({ ...current, [id]: navigator.onLine ? "issue" : "pending" }));
         setToast("New account canvas saved on this device. It will sync when you reconnect.");
       }
       setAccountDiagrams((current) => [{ document: next, revision }, ...current.filter((entry) => entry.document.id !== id)]);
@@ -707,6 +751,11 @@ function StudioContent() {
         });
         const remaining = accountDiagrams.filter((entry) => entry.document.id !== target.id);
         setAccountDiagrams(remaining);
+        setAccountSyncStatuses((current) => {
+          const next = { ...current };
+          delete next[target.id];
+          return next;
+        });
         if (activeSource === "account" && diagramId === target.id) {
           if (remaining[0]) activateAccountDocument(remaining[0], userId!);
           else {
@@ -736,6 +785,7 @@ function StudioContent() {
   const transferGuestCanvases = async () => {
     if (!transferPrompt) return;
     const { userId, documents } = transferPrompt;
+    for (const document of documents) clearGuestTransferPromptDismissal(userId, document.id);
     setSaveState("saving");
     const imported: VersionedDiagram[] = [];
     const transferredByGuestId = new Map<string, VersionedDiagram>();
@@ -761,7 +811,9 @@ function StudioContent() {
         imported.push(transferred);
         transferredByGuestId.set(guestDocument.id, transferred);
         await saveAccountDiagramCache({ userId, diagramId: accountDocument.id, document: accountDocument, revision: result.revision, updatedAt: accountDocument.updatedAt, dirty: false });
+        setAccountSyncStatuses((current) => ({ ...current, [accountDocument.id]: "synced" }));
         await saveGuestTransferReceipt({ userId, diagramId: guestDocument.id, guestUpdatedAt: guestDocument.updatedAt, accountDiagramId: accountDocument.id });
+        clearGuestTransferPromptDismissal(userId, guestDocument.id);
       }
       const remote = await listAccountDiagrams();
       setAccountDiagrams(remote);
@@ -787,6 +839,14 @@ function StudioContent() {
     }                 
     if (documents.length) setTransferPrompt({ userId: accountUserId, documents });
     else setToast("All canvases on this device have already been copied to your account.");
+  };
+
+  const dismissGuestTransferPrompt = () => {
+    if (!transferPrompt) return;
+    for (const document of transferPrompt.documents) {
+      saveGuestTransferPromptDismissal(transferPrompt.userId, document.id, document.updatedAt);
+    }
+    setTransferPrompt(null);
   };
 
   const beginImport = () => {
@@ -1005,7 +1065,7 @@ function StudioContent() {
                 <button className="new-diagram-button" onClick={createDiagram}><span>＋</span> Create a new canvas</button>
                 <button className="import-backup-button" onClick={beginImport}><span>↑</span> Import JSON backup</button>
                 {accountUserId && diagrams.length > 0 && <button className="import-backup-button" onClick={() => void reviewGuestTransfer()}><span>☁</span> Copy this device’s canvases to account</button>}
-                {accountDiagrams.length > 0 && <><div className="diagram-section-label">ACCOUNT CANVASES</div><div className="diagram-list">{accountDiagrams.map((entry) => <div className="diagram-row-item" key={`account-${entry.document.id}`}><button className={`diagram-row ${entry.document.id === diagramId && activeSource === "account" ? "current" : ""}`} onClick={() => openAccountDiagram(entry)}><span className="diagram-row-icon">☁</span><span className="diagram-row-copy"><strong>{entry.document.title || "Untitled flow"}</strong><small>{entry.document.graph.nodes.length} components · Synced canvas</small></span>{entry.document.id === diagramId && activeSource === "account" && <span className="current-dot" />}</button><button className="diagram-row-delete" aria-label={`Delete ${entry.document.title || "Untitled flow"}`} title="Delete canvas" onClick={() => requestCanvasDelete("account", entry.document.id, entry.document.title)}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5m2 0-.6 8H4.6l-.6-8M6.5 7v3.5M9.5 7v3.5" /></svg></button></div>)}</div></>}
+                {accountDiagrams.length > 0 && <><div className="diagram-section-label">ACCOUNT CANVASES</div><div className="diagram-list">{accountDiagrams.map((entry) => { const status = accountSyncStatuses[entry.document.id] ?? "synced"; return <div className="diagram-row-item" key={`account-${entry.document.id}`}><button className={`diagram-row ${entry.document.id === diagramId && activeSource === "account" ? "current" : ""}`} onClick={() => openAccountDiagram(entry)}><span className="diagram-row-icon">☁</span><span className="diagram-row-copy"><strong>{entry.document.title || "Untitled flow"}</strong><small>{entry.document.graph.nodes.length} components · <span className={`canvas-sync-status ${status}`}>{status === "pending" ? "Pending sync" : status === "issue" ? "Sync issue" : "Synced"}</span></small></span>{entry.document.id === diagramId && activeSource === "account" && <span className="current-dot" />}</button><button className="diagram-row-delete" aria-label={`Delete ${entry.document.title || "Untitled flow"}`} title="Delete canvas" onClick={() => requestCanvasDelete("account", entry.document.id, entry.document.title)}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5m2 0-.6 8H4.6l-.6-8M6.5 7v3.5M9.5 7v3.5" /></svg></button></div>; })}</div></>}
                 <div className="diagram-section-label">THIS DEVICE</div><div className="diagram-list">{diagrams.map((diagram) => <div className="diagram-row-item" key={`guest-${diagram.id}`}><button className={`diagram-row ${diagram.id === diagramId && activeSource === "guest" ? "current" : ""}`} onClick={() => openDiagram(diagram.id)}><span className="diagram-row-icon">◈</span><span className="diagram-row-copy"><strong>{diagram.title || "Untitled flow"}</strong><small>{diagram.graph.nodes.length} components · Edited {new Date(diagram.updatedAt).toLocaleDateString()}</small></span>{diagram.id === diagramId && activeSource === "guest" && <span className="current-dot" />}</button><button className="diagram-row-delete" aria-label={`Delete ${diagram.title || "Untitled flow"}`} title="Delete canvas from this device" onClick={() => requestCanvasDelete("device", diagram.id, diagram.title)}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5m2 0-.6 8H4.6l-.6-8M6.5 7v3.5M9.5 7v3.5" /></svg></button></div>)}</div>
               </div>}
             </div>
@@ -1232,7 +1292,7 @@ function StudioContent() {
           <span className="account-dialog-mark">☁</span>
           <h2 id="transfer-dialog-title">Copy your local canvases to your account?</h2>
           <p>{transferPrompt.documents.length} canvas{transferPrompt.documents.length === 1 ? "" : "es"} from this browser will be copied so you can open them on other devices. The local originals stay here. If an account canvas has the same id but different edits, both versions will be kept as separate canvases for you to review.</p>
-          <div className="transfer-dialog-actions"><button className="transfer-later-button" onClick={() => setTransferPrompt(null)}>Not now</button><button className="account-dialog-submit" onClick={() => void transferGuestCanvases()}>Copy {transferPrompt.documents.length} canvas{transferPrompt.documents.length === 1 ? "" : "es"}</button></div>
+          <div className="transfer-dialog-actions"><button className="transfer-later-button" onClick={dismissGuestTransferPrompt}>Not now</button><button className="account-dialog-submit" onClick={() => void transferGuestCanvases()}>Copy {transferPrompt.documents.length} canvas{transferPrompt.documents.length === 1 ? "" : "es"}</button></div>
         </section>
       </div>}
       {importDialogOpen && <div className="import-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportDialogOpen(false); }}>

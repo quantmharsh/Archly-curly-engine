@@ -81,3 +81,9 @@ The saved-canvas popover now uses one viewport-bounded scroll area. Include a lo
 ## 2026-10-25 Cross-device canvas restore
 
 Account last-open state now persists per user in PostgreSQL; guest state remains browser-local. Migration `0001_normal_stryfe.sql` was generated and applied to the local Docker PostgreSQL database. `node node_modules/typescript/bin/tsc --noEmit` passed. No automated tests or browser interaction checks were run. Next: verify refresh/login restoration on the same and a second browser/device, including a pending guest-transfer prompt and deleting the preferred account canvas.
+## 2026-10-26 User verification and next task
+
+The user confirmed last-open account canvas restoration works across login, refresh, and another browser/device. Remaining account-sync QA: sequential edits from two browsers, offline queue/reconnect, and conflict preservation. Recommended next implementation: render truthful Synced, Pending sync, and Sync issue states; current account canvas rows always say Synced canvas even when the local dirty cache overlays the remote document.
+## 2026-10-26 Sync status and guest-transfer prompt update
+
+Account rows use cache/queue state to show Synced, Pending sync, or Sync issue. The transfer prompt remembers Not now per user/device/canvas version and returns only after a local edit; successful copy clears dismissal. No-op guest autosaves leave updatedAt unchanged. TypeScript passed (exit 0); no tests or browser QA were run. Next: manually verify transfer prompt frequency and sync labels for online success, offline queue, and failed sync, then finish sequential cross-browser sync QA.

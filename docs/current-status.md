@@ -115,3 +115,9 @@ The canvas library popover now stays within the viewport and scrolls as a whole,
 ## 2026-10-25 Cross-device last-open canvas restore
 
 Signed-in users' last-open account canvas is persisted in PostgreSQL via the authenticated `/api/account/last-open-diagram` route and `accountPreference` table. Guest last-open state remains browser-local. Account startup restores the server preference (with local-per-user and latest-account fallbacks) even if this device has guest canvases awaiting transfer. Deleting the preferred canvas clears the preference. The Drizzle migration was generated and applied locally; TypeScript no-emit passed. Interactive browser verification remains pending; automated tests were not run.
+## 2026-10-26 User-confirmed account canvas restoration
+
+The user manually confirmed that the same account canvas restores after login/refresh and on another browser/device. This verifies last-open preference behavior only; sequential cross-browser edits, offline queue/reconnect, and conflict handling remain to be checked. Source review found the account list currently labels all rows â€œSynced canvas,â€ including dirty local cache entries; truthful pending/sync-error indicators are the next recommended implementation.
+## 2026-10-26 Account sync labels and transfer prompt behavior
+
+Account canvas rows now display Synced, Pending sync, or Sync issue based on cache/queue state. Guest transfer prompts are dismissed per user/device and local document version, and successful copies retain a transfer receipt. No-op autosave preserves updatedAt so refresh does not re-trigger transfer prompts. TypeScript no-emit passed; automated tests and browser QA were not run. Verify dismissal/re-prompt and all sync labels manually.

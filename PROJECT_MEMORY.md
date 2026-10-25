@@ -204,3 +204,6 @@ Canvas deletion is an explicit destructive action: the user must type the exact 
 ## 2026-10-25: Resume the last account canvas across devices
 
 Guest last-open state remains browser-local. Signed-in account users have a separate last-open canvas preference stored in PostgreSQL and exposed through the authenticated account preference route. Selecting an account canvas updates the local per-user fallback and the server preference. On login or refresh, the app restores that account canvas even when local guest canvases are pending transfer. If the server preference is unavailable or points to a missing canvas, the app falls back to a matching local preference and then the most recently updated account canvas. The account preference is cleared when its canvas is deleted.
+## 2026-10-26: Account sync status and one-time guest-transfer prompts
+
+Account canvas rows report Synced, Pending sync, or Sync issue from the per-user IndexedDB cache and sync queue. Guest-to-account prompts are tracked per user, browser, and local canvas version: dismissing a prompt suppresses it for that unchanged version; editing the local canvas allows a new prompt; successful transfer records a receipt and clears dismissal. Autosave preserves updatedAt when title/graph content is unchanged so a reload does not look like a new edit.

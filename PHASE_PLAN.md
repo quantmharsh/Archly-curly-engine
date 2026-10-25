@@ -1,6 +1,6 @@
 # AI Engineering Canvas - Phase Plan
 
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 Overall status: Phase 1A guest-canvas work remains in progress; Phase 1B account and sync foundation is now in progress.
 
 ## Tracking rules
@@ -179,7 +179,7 @@ See the rationale and current official documentation references in `PROJECT_MEMO
 
 Phase 1A source is in `apps/web`; the current code includes the canvas, browser-local persistence, JSON backup import/export, connection editing, and direct-use interactions described in `docs/current-status.md`. The app now remembers the last open canvas in browser-local storage and restores it on return, falling back to the most recently updated canvas and only then to the seeded starter diagram. A pre-existing startup bug that overwrote an existing canvas with the default seed on every dev-mode page load was removed. TypeScript passed in the 2026-10-05 handoff assessment and again on 2026-10-08. Vitest coverage exists for graph validation and Dexie persistence, but tests, lint, and production build were not successfully verified in that assessment; the user has instructed the agent not to run tests until further notice. The user previously confirmed a manual canvas review on 2026-10-03 and multi-selection/group movement/copy-paste/undo and JSON import behavior on 2026-10-04. The latest edge editor, direct-use, and last-open-canvas restore changes still need focused browser QA. Next.js Route Handlers and Docker Compose for local PostgreSQL are now present in Phase 1B.
 
-Next step: manually verify account and device canvas deletion, including the typed DELETE gate, list removal, and confirming deleted content is absent after refresh. Then validate the account-save duplicate fix in the user browser. Continue Phase 1A interaction QA; do not run automated tests until explicitly authorized.
+Next step: manually verify the account list shows Synced, Pending sync, and Sync issue correctly; verify the guest-transfer prompt appears once per unchanged local canvas, stays dismissed after Not now, and reappears after that canvas changes. Also complete sequential cross-browser and offline reconnect sync QA. Automated tests remain prohibited until explicitly authorized.
 
 ## Change log
 
@@ -232,3 +232,5 @@ The user approved email/password authentication with Better Auth, PostgreSQL and
 - 2026-10-25: Fixed an autosave regression after canvas deletion. Deletion guards now distinguish guest storage from each signed-in account, because transferred copies can share an ID; a rejected pending save also settles the save indicator instead of leaving it on Saving. TypeScript passed. Automated tests and browser verification were not run. Next: reload and manually verify edits save for both guest and account canvases, including when a same-ID copy in the other storage scope was deleted.
 - 2026-10-25: Fixed the saved-canvas popover overflowing its bounds when many canvases are listed. The popover is constrained to the viewport and scrolls as a single list. No automated tests were run; visual browser verification remains pending.
 - 2026-10-25: Added per-account last-open canvas persistence. Account selection now restores across refreshes and devices, and guest transfer prompts no longer prevent resuming an existing account canvas. Added and applied the accountPreference migration. TypeScript passed; interactive browser verification remains pending and automated tests were not run.
+- 2026-10-26: The user confirmed account canvas last-open restoration works after login/refresh and across browsers/devices. This verifies the per-account preference flow but not all account-sync acceptance criteria. Next implementation: show actual sync state for dirty/queued account canvases instead of labeling every row Synced.
+- 2026-10-26: Added account canvas sync-state labels backed by the local dirty cache and sync queue. Guest transfer prompts now remember a per-user, per-device dismissal for the exact local canvas version; successful transfers clear that dismissal. Guest autosave no longer changes updatedAt when document content is unchanged, preventing repeated prompts after refresh. TypeScript passed; automated tests and browser QA were not run.

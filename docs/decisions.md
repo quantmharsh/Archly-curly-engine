@@ -250,3 +250,16 @@ Keep guest last-open state in browser storage, and persist signed-in users' last
 ### Reason
 
 A browser-local pointer cannot resume the same account canvas on another device. Device-local guest documents should remain independent, but pending guest-transfer prompts should not prevent restoring an existing account canvas.
+## 2026-10-26: Make account sync state and transfer prompts reflect actual local changes
+
+### Status
+
+Accepted and implemented
+
+### Decision
+
+Show account canvas sync status from the local dirty cache and sync queue. A guest-transfer prompt is shown once for each local canvas version; Not now dismisses that version on the current device, while later edits can prompt again. A successful transfer stores the copied version and clears its dismissal. Do not update a document timestamp when autosave finds no content change.
+
+### Reason
+
+The previous UI called every account row synced even when local queued edits overrode the server copy. Also, autosave refreshed updatedAt on every page load, causing unchanged guest canvases to look newly edited and trigger repeated transfer prompts.

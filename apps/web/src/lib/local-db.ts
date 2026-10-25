@@ -113,6 +113,33 @@ export async function saveGuestTransferReceipt(receipt: Omit<GuestTransferReceip
   await localDb.guestTransfers.put({ ...receipt, key: accountDiagramKey(receipt.userId, receipt.diagramId) });
 }
 
+const guestTransferDismissalKey = (userId: string, diagramId: string) => `archly-guest-transfer-dismissed:${userId}:${diagramId}`;
+
+export function getGuestTransferPromptDismissal(userId: string, diagramId: string) {
+  try {
+    const value = window.localStorage.getItem(guestTransferDismissalKey(userId, diagramId));
+    return value === null ? undefined : Number(value);
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveGuestTransferPromptDismissal(userId: string, diagramId: string, guestUpdatedAt: number) {
+  try {
+    window.localStorage.setItem(guestTransferDismissalKey(userId, diagramId), String(guestUpdatedAt));
+  } catch {
+    // Showing the transfer prompt again is safer than losing an explicit dismissal.
+  }
+}
+
+export function clearGuestTransferPromptDismissal(userId: string, diagramId: string) {
+  try {
+    window.localStorage.removeItem(guestTransferDismissalKey(userId, diagramId));
+  } catch {
+    // Dismissal cleanup is best-effort; the transfer receipt still records the copied version.
+  }
+}
+
 // Which canvas was last open is a small UI pointer, not part of a diagram
 // document, so it lives in localStorage next to the IndexedDB database rather
 // than inside the versioned graph schema.
