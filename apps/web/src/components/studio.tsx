@@ -21,7 +21,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { clearGuestTransferPromptDismissal, deleteAccountDiagramCache, deleteLocalDiagram, getAccountDiagramCache, getGuestTransferPromptDismissal, getGuestTransferReceipt, listAccountDiagramCache, listLocalDiagrams, listQueuedDiagramSync, queueDiagramSync, readLastOpenAccountDiagramId, readLastOpenDiagramId, readLocalDiagram, removeQueuedDiagramSync, saveAccountDiagramCache, saveGuestTransferPromptDismissal, saveGuestTransferReceipt, saveLastOpenAccountDiagramId, saveLastOpenDiagramId, saveLocalDiagram } from "@/lib/local-db";
 import { diagramDocumentSchema, type DiagramDocument } from "@/lib/graph-schema";
-import { AccountDiagramError, createAccountDiagram, deleteAccountDiagram, flushQueuedAccountDiagrams, getLastOpenAccountDiagramId, listAccountDiagrams, sameDiagramContent, sameDiagramGraph, serializeDiagramWrite, setLastOpenAccountDiagramId, updateAccountDiagram, type VersionedDiagram } from "@/lib/account-diagrams";
+import { AccountDiagramError, createAccountDiagram, deleteAccountDiagram, flushQueuedAccountDiagrams, getLastOpenAccountDiagramId, listAccountDiagrams, sameDiagramContent, sameDiagramContentExceptViewport, sameDiagramGraph, serializeDiagramWrite, setLastOpenAccountDiagramId, updateAccountDiagram, type VersionedDiagram } from "@/lib/account-diagrams";
 import {
   GRID_STEP,
   HANDLE_LEFT,
@@ -481,7 +481,7 @@ function StudioContent() {
               setSaveState("saved");
             } catch (error) {
               if (error instanceof AccountDiagramError && error.status === 409) {
-                if (error.current && sameDiagramContent(error.current.document, document)) {
+                if (error.current && sameDiagramContentExceptViewport(error.current.document, document)) {
                   activeRevisionRef.current = error.current.revision;
                   await saveAccountDiagramCache({ userId: activeAccountUserId, diagramId: targetDiagramId, document: error.current.document, revision: error.current.revision, updatedAt: error.current.document.updatedAt, dirty: false });
                   await removeQueuedDiagramSync(activeAccountUserId, targetDiagramId);

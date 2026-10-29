@@ -11,6 +11,23 @@ export function sameDiagramContent(left: DiagramDocument, right: DiagramDocument
   return left.title === right.title && sameDiagramGraph(left, right);
 }
 
+// Viewport position and zoom are useful to restore a canvas, but they are
+// browser-specific presentation state. Two browsers can report different
+// viewports merely by opening the same diagram, so viewport-only differences
+// must not be treated as competing diagram edits.
+export function sameDiagramContentExceptViewport(left: DiagramDocument, right: DiagramDocument) {
+  const graphContent = (document: DiagramDocument) => ({
+    schemaVersion: document.graph.schemaVersion,
+    nodes: document.graph.nodes,
+    edges: document.graph.edges,
+    canvasColor: document.graph.canvasColor,
+    showGrid: document.graph.showGrid,
+  });
+  return left.title === right.title
+    && left.id === right.id
+    && JSON.stringify(graphContent(left)) === JSON.stringify(graphContent(right));
+}
+
 const diagramWriteQueues = new Map<string, Promise<void>>();
 
 export async function serializeDiagramWrite<T>(key: string, save: () => Promise<T>) {
@@ -87,7 +104,7 @@ export async function flushQueuedAccountDiagrams(userId: string, skipDiagramId?:
         if (error instanceof AccountDiagramError && error.status === 404) {
           revision = (await createAccountDiagram(item.document)).revision;
         } else if (error instanceof AccountDiagramError && error.status === 409) {
-          if (error.current && sameDiagramContent(error.current.document, item.document)) {
+          if (error.current && sameDiagramContentExceptViewport(error.current.document, item.document)) {
             revision = error.current.revision;
           } else {
             const conflictDocument = { ...item.document, id: crypto.randomUUID(), title: `${item.document.title} (conflict copy)`, updatedAt: Date.now() };

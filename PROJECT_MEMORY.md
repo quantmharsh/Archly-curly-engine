@@ -207,3 +207,7 @@ Guest last-open state remains browser-local. Signed-in account users have a sepa
 ## 2026-10-26: Account sync status and one-time guest-transfer prompts
 
 Account canvas rows report Synced, Pending sync, or Sync issue from the per-user IndexedDB cache and sync queue. Guest-to-account prompts are tracked per user, browser, and local canvas version: dismissing a prompt suppresses it for that unchanged version; editing the local canvas allows a new prompt; successful transfer records a receipt and clears dismissal. Autosave preserves updatedAt when title/graph content is unchanged so a reload does not look like a new edit.
+
+## 2026-10-30: Do not treat viewport-only differences as diagram conflicts
+
+Account conflict recovery still preserves divergent diagram edits as separate canvases. Conflict detection ignores viewport position and zoom because those presentation values may differ between browsers when a canvas is opened, even when nodes, edges, title, and canvas settings are unchanged. Viewport can still be saved during normal writes; only conflict classification ignores it. Automated tests and browser QA remain pending; automated tests stay prohibited until user authorization.

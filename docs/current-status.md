@@ -121,3 +121,6 @@ The user manually confirmed that the same account canvas restores after login/re
 ## 2026-10-26 Account sync labels and transfer prompt behavior
 
 Account canvas rows now display Synced, Pending sync, or Sync issue based on cache/queue state. Guest transfer prompts are dismissed per user/device and local document version, and successful copies retain a transfer receipt. No-op autosave preserves updatedAt so refresh does not re-trigger transfer prompts. TypeScript no-emit passed; automated tests and browser QA were not run. Verify dismissal/re-prompt and all sync labels manually.
+## 2026-10-30 Account conflict-copy false positive fix
+
+Account conflict resolution now ignores viewport-only differences when deciding whether to create a conflict copy, both for direct saves and queued offline sync. Divergent title, node, edge, or canvas setting edits continue through the existing preserve-both recovery path. TypeScript no-emit and git diff --check passed. Automated tests and browser QA were not run. Next: verify two-browser open/viewport behavior and genuine divergent edit preservation manually.

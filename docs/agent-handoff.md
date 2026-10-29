@@ -87,3 +87,6 @@ The user confirmed last-open account canvas restoration works across login, refr
 ## 2026-10-26 Sync status and guest-transfer prompt update
 
 Account rows use cache/queue state to show Synced, Pending sync, or Sync issue. The transfer prompt remembers Not now per user/device/canvas version and returns only after a local edit; successful copy clears dismissal. No-op guest autosaves leave updatedAt unchanged. TypeScript passed (exit 0); no tests or browser QA were run. Next: manually verify transfer prompt frequency and sync labels for online success, offline queue, and failed sync, then finish sequential cross-browser sync QA.
+## 2026-10-30 Viewport-only account conflict handling
+
+Updated src/lib/account-diagrams.ts and src/components/studio.tsx so 409 conflict handling treats differences only in viewport position/zoom as equivalent content. Real diagram-content differences still create a separate conflict copy. TypeScript no-emit and git diff --check passed; no tests or browser QA were run. Next: manually confirm opening the same canvas in two browsers does not create a copy, and real concurrent content edits remain preserved. Continue to avoid automated tests until explicitly authorized.

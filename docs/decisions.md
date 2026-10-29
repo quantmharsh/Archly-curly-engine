@@ -263,3 +263,16 @@ Show account canvas sync status from the local dirty cache and sync queue. A gue
 ### Reason
 
 The previous UI called every account row synced even when local queued edits overrode the server copy. Also, autosave refreshed updatedAt on every page load, causing unchanged guest canvases to look newly edited and trigger repeated transfer prompts.
+## 2026-10-30: Ignore viewport-only differences when recovering account conflicts
+
+### Status
+
+Accepted and implemented
+
+### Decision
+
+Keep optimistic revision checks and preserve divergent diagram edits as separate canvases, but do not classify viewport position or zoom alone as a content conflict. Apply this rule to both online saves and queued offline sync.
+
+### Reason
+
+Browsers can report different presentation viewports when opening the same account canvas. Treating that difference as a divergent edit created unnecessary conflict copies. Diagram title, nodes, edges, canvas color, and grid setting remain part of conflict comparison.
